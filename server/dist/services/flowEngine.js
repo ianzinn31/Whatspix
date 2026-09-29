@@ -79,7 +79,68 @@ export class FlowEngine {
                 return true;
             }
         }
-        return true; // Padrão verdadeiro caso não haja recusa
+        return true;
+    }
+    /**
+     * Converte strings de delay de funil ("5s - 10s", "8s", "3s-7s", "15 segundos", "1m", etc.)
+     * em milissegundos estritos para serem rigorosamente respeitados.
+     */
+    static parseDelayMs(delayVal, defaultMinMs = 3000, defaultMaxMs = 7000) {
+        if (!delayVal) {
+            return Math.floor(Math.random() * (defaultMaxMs - defaultMinMs + 1)) + defaultMinMs;
+        }
+        const str = String(delayVal).trim().toLowerCase();
+        // 1. Faixa com hífen ou "a": ex: "5s - 10s", "3s - 5s", "5 a 10s", "3-5"
+        const rangeMatch = str.match(/(\d+(?:\.\d+)?)\s*(?:s|seg|min|m)?\s*(?:-|a|à|to)\s*(\d+(?:\.\d+)?)\s*(s|seg|min|m)?/i);
+        if (rangeMatch) {
+            let min = parseFloat(rangeMatch[1]);
+            let max = parseFloat(rangeMatch[2]);
+            const unit = (rangeMatch[3] || '').toLowerCase();
+            const isMinutes = unit.startsWith('m') || str.includes('min') || str.includes('minuto');
+            if (isMinutes) {
+                min *= 60000;
+                max *= 60000;
+            }
+            else {
+                min *= 1000;
+                max *= 1000;
+            }
+            if (max < min)
+                [min, max] = [max, min];
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+        // 2. Horas (para smartDelay)
+        if (str.includes('h') || str.includes('hora')) {
+            const num = parseFloat(str.replace(/[^0-9.]/g, '')) || 1;
+            return Math.min(Math.round(num * 3600 * 1000), 600000);
+        }
+        // 3. Minutos
+        if (str.includes('m') || str.includes('min')) {
+            const num = parseFloat(str.replace(/[^0-9.]/g, '')) || 1;
+            return Math.min(Math.round(num * 60 * 1000), 600000);
+        }
+        // 4. Segundos
+        const num = parseFloat(str.replace(/[^0-9.]/g, ''));
+        if (!isNaN(num) && num > 0) {
+            return Math.round(num * 1000);
+        }
+        return Math.floor(Math.random() * (defaultMaxMs - defaultMinMs + 1)) + defaultMinMs;
+    }
+    /**
+     * Converte strings de duração de áudio ("0:10", "0:28", "1:15", "8", "15s") em segundos inteiros
+     */
+    static parseDurationSec(durationVal, defaultSec = 8) {
+        if (!durationVal)
+            return defaultSec;
+        const str = String(durationVal).trim();
+        if (str.includes(':')) {
+            const parts = str.split(':');
+            const min = parseInt(parts[0], 10) || 0;
+            const sec = parseInt(parts[1], 10) || 0;
+            return Math.max(1, min * 60 + sec);
+        }
+        const num = parseInt(str.replace(/[^0-9]/g, ''), 10);
+        return !isNaN(num) && num > 0 ? num : defaultSec;
     }
     /**
      * Executa os blocos do funil para o lead passo a passo até encontrar uma pausa ou o fim do fluxo
@@ -189,9 +250,16 @@ export class FlowEngine {
                     .replace(/{{telefone}}/gi, lead.phone || '')
                     .replace(/{{valor}}/gi, `R$ ${lead.offerValue.toFixed(2).replace('.', ',')}`);
                 if (textContent.trim()) {
-                    // Envia no WhatsApp real via WAHA
+                    // Delay estrito e digitação humanizada do bloco
+                    const messageDelayMs = FlowEngine.parseDelayMs(nodeData.delay, 4000, 8000);
+                    console.log(`[FLOW ENGINE] ⏳ Bloco Mensagem ${currentNode.id}: aguardando delay configurado de ${messageDelayMs}ms com status digitando...`);
                     if (instance && jid) {
-                        await WahaService.sendTextMessage(instance, jid, textContent);
+                        await WahaService.sendPresence(instance, jid, 'composing');
+                    }
+                    await new Promise((resolve) => setTimeout(resolve, messageDelayMs));
+                    if (instance && jid) {
+                        await WahaService.sendPresence(instance, jid, 'paused');
+                        await WahaService.sendDirectTextMessage(instance, jid, textContent);
                     }
                     // Registra no histórico do chat do CRM
                     const textMsg = {
@@ -211,8 +279,13 @@ export class FlowEngine {
                 // Se houver áudio embutido neste bloco de mensagem
                 const audioUrl = nodeData.audioUrl || (nodeData.audioFileName ? `/audios/${nodeData.audioFileName}` : '');
                 if (audioUrl) {
+                    // Pausa natural entre o texto e o início da gravação do áudio
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
+                    const durationSec = FlowEngine.parseDurationSec(nodeData.audioDuration, 8);
+                    const audioDelayMs = FlowEngine.parseDelayMs(nodeData.audioDelay || nodeData.delay, Math.max(durationSec * 1000, 4000), Math.max(durationSec * 1000, 8000));
+                    console.log(`[FLOW ENGINE] 🎙️ Áudio anexo: aguardando gravação de ${audioDelayMs}ms (duração: ${durationSec}s)...`);
                     if (instance && jid) {
-                        await WahaService.sendVoiceNote(instance, jid, audioUrl, 8);
+                        await WahaService.sendVoiceNote(instance, jid, audioUrl, durationSec, audioDelayMs);
                     }
                     const audioMsg = {
                         id: `msg-fn-aud-${Date.now()}`,
@@ -237,6 +310,7 @@ export class FlowEngine {
                         ? [rawFiles]
                         : [];
                 if (filesList.length > 0) {
+                    await new Promise((resolve) => setTimeout(resolve, 1500));
                     const backendBaseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3001}`;
                     for (const file of filesList) {
                         const fileName = file.name || 'documento.pdf';
@@ -261,6 +335,8 @@ export class FlowEngine {
                         lead.lastMessageAt = docMsg.timestamp;
                     }
                 }
+                // Pausa de respiro após o bloco para humanização realista antes do próximo nó
+                await new Promise((resolve) => setTimeout(resolve, 2000));
                 // Avança para o próximo nó
                 const nextEdge = funnel.edges.find((e) => e.source === currentNode.id);
                 if (nextEdge) {
@@ -277,6 +353,9 @@ export class FlowEngine {
             // BLOCO 1.5: ENVIO DEDICADO DE ARQUIVO OU DOCUMENTO PDF
             // -------------------------------------------------------------
             if (nodeType === 'fileNode' || nodeType === 'documentNode' || nodeType === 'mediaNode') {
+                const fileDelayMs = FlowEngine.parseDelayMs(nodeData.delay, 3000, 5000);
+                console.log(`[FLOW ENGINE] 📁 Bloco de Arquivo: aguardando delay de ${fileDelayMs}ms...`);
+                await new Promise((resolve) => setTimeout(resolve, fileDelayMs));
                 const rawFiles = nodeData.files || (nodeData.fileName ? [{ name: nodeData.fileName, url: nodeData.fileUrl }] : []);
                 const filesList = Array.isArray(rawFiles)
                     ? rawFiles.map((f) => (typeof f === 'string' ? { name: f } : f))
@@ -304,6 +383,7 @@ export class FlowEngine {
                     db.messages[lead.id].push(docMsg);
                     lead.lastMessageAt = docMsg.timestamp;
                 }
+                await new Promise((resolve) => setTimeout(resolve, 2000));
                 const nextEdge = funnel.edges.find((e) => e.source === currentNode.id);
                 if (nextEdge) {
                     currentNode = funnel.nodes.find((n) => n.id === nextEdge.target);
@@ -320,9 +400,11 @@ export class FlowEngine {
             // -------------------------------------------------------------
             if (nodeType === 'audioNode' || nodeType === 'audio') {
                 const audioUrl = nodeData.audioUrl || (nodeData.audioFileName ? `/audios/${nodeData.audioFileName}` : '');
-                const durationSec = parseInt(nodeData.audioDuration || '8', 10) || 8;
+                const durationSec = FlowEngine.parseDurationSec(nodeData.audioDuration, 8);
+                const delayMs = FlowEngine.parseDelayMs(nodeData.delay, Math.max(durationSec * 1000, 4000), Math.max(durationSec * 1000, 8000));
+                console.log(`[FLOW ENGINE] 🎙️ Bloco de Áudio ${currentNode.id}: aguardando delay de gravação de ${delayMs}ms (duração: ${durationSec}s)...`);
                 if (audioUrl && instance && jid) {
-                    await WahaService.sendVoiceNote(instance, jid, audioUrl, durationSec);
+                    await WahaService.sendVoiceNote(instance, jid, audioUrl, durationSec, delayMs);
                 }
                 const audioMsg = {
                     id: `msg-fn-aud-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -338,6 +420,8 @@ export class FlowEngine {
                     db.messages[lead.id] = [];
                 db.messages[lead.id].push(audioMsg);
                 lead.lastMessageAt = audioMsg.timestamp;
+                // Pausa de respiro após áudio antes de ir para o próximo bloco
+                await new Promise((resolve) => setTimeout(resolve, 2500));
                 // Avança para o próximo nó
                 const nextEdge = funnel.edges.find((e) => e.source === currentNode.id);
                 if (nextEdge) {
@@ -386,6 +470,15 @@ export class FlowEngine {
             // BLOCO 5: BOTÃO PIX / GERADOR DE COBRANÇA
             // -------------------------------------------------------------
             if (nodeType === 'pixButtonNode' || nodeType === 'pix_generator' || nodeType === 'paymentNode') {
+                const pixDelayMs = FlowEngine.parseDelayMs(nodeData.delay, 3000, 6000);
+                console.log(`[FLOW ENGINE] ⚡ Bloco PIX ${currentNode.id}: aguardando delay de ${pixDelayMs}ms com status digitando...`);
+                if (instance && jid) {
+                    await WahaService.sendPresence(instance, jid, 'composing');
+                }
+                await new Promise((resolve) => setTimeout(resolve, pixDelayMs));
+                if (instance && jid) {
+                    await WahaService.sendPresence(instance, jid, 'paused');
+                }
                 const rawAmount = String(nodeData.amount || lead.offerValue || '197').replace(',', '.');
                 const amount = parseFloat(rawAmount) || 197.0;
                 const txId = `WPX-${Math.floor(Math.random() * 899999 + 100000)}`;
@@ -398,7 +491,7 @@ export class FlowEngine {
                     lead.tags.push('pix_pendente');
                 const pixText = `Aqui está o seu PIX Copia e Cola no valor de *R$ ${amount.toFixed(2).replace('.', ',')}*:\n\n\`\`\`${pixCode}\`\`\`\n\nCopie o código acima e pague no app do seu banco. Assim que pagar, me envie o comprovante por aqui para liberarmos imediatamente seu acesso! ⚡`;
                 if (instance && jid) {
-                    await WahaService.sendTextMessage(instance, jid, pixText);
+                    await WahaService.sendDirectTextMessage(instance, jid, pixText);
                 }
                 const pixMsg = {
                     id: `msg-pix-${Date.now()}`,
@@ -413,6 +506,7 @@ export class FlowEngine {
                     db.messages[lead.id] = [];
                 db.messages[lead.id].push(pixMsg);
                 lead.lastMessageAt = pixMsg.timestamp;
+                await new Promise((resolve) => setTimeout(resolve, 2000));
                 // Avança para o próximo nó
                 const nextEdge = funnel.edges.find((e) => e.source === currentNode.id);
                 if (nextEdge) {
@@ -464,8 +558,9 @@ export class FlowEngine {
             // BLOCO 8: DELAY INTELIGENTE (Smart Delay)
             // -------------------------------------------------------------
             if (nodeType === 'smartDelayNode' || nodeType === 'delay') {
-                // Pausa breve humanizada (1.5s) na execução ao vivo para não disparar em rajada
-                await new Promise((resolve) => setTimeout(resolve, 1500));
+                const smartDelayMs = FlowEngine.parseDelayMs(nodeData.delay, 10000, 20000);
+                console.log(`[FLOW ENGINE] ⏱️ Intervalo Inteligente ${currentNode.id}: aguardando delay estrito de ${smartDelayMs}ms (${nodeData.delay || 'padrão'})...`);
+                await new Promise((resolve) => setTimeout(resolve, smartDelayMs));
                 const nextEdge = funnel.edges.find((e) => e.source === currentNode.id);
                 if (nextEdge) {
                     currentNode = funnel.nodes.find((n) => n.id === nextEdge.target);

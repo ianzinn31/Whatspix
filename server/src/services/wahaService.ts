@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { WhatsAppInstance } from '../types/index.js';
 import { AntiBanEngine } from './antiBanEngine.js';
+import { AudioConverter } from './audioConverter.js';
 
 export class WahaService {
   /**
@@ -314,13 +315,50 @@ export class WahaService {
   }
 
   /**
+   * Envia texto diretamente para o WAHA sem atrasos adicionais
+   * (usado quando o FlowEngine já gerenciou o delay e o status 'digitando...')
+   */
+  static async sendDirectTextMessage(
+    instance: WhatsAppInstance,
+    chatId: string,
+    rawText: string
+  ): Promise<{ success: boolean; deliveredText: string }> {
+    const serverUrl = instance.serverUrl || process.env.WAHA_API_URL || 'http://localhost:3000';
+    const headers = this.getHeaders(instance);
+    const cleanChatId = this.formatChatId(chatId);
+
+    const processedText = instance.antiBanConfig.spintaxEnabled
+      ? AntiBanEngine.processSpintax(rawText)
+      : rawText;
+
+    try {
+      if (serverUrl) {
+        await axios.post(
+          `${serverUrl}/api/sendText`,
+          {
+            session: instance.id,
+            chatId: cleanChatId,
+            text: processedText
+          },
+          { headers, timeout: 8000 }
+        );
+      }
+    } catch (err: any) {
+      console.warn(`[WAHA] SendDirectText error: ${err.message}`);
+    }
+
+    return { success: true, deliveredText: processedText };
+  }
+
+  /**
    * Envia mensagem de texto aplicando Spintax e delay humanizado anti-ban
    */
   static async sendTextMessage(
     instance: WhatsAppInstance,
     chatId: string,
     rawText: string,
-    onTypingStatus?: (status: string) => void
+    onTypingStatus?: (status: string) => void,
+    customDelayMs?: number
   ): Promise<{ success: boolean; deliveredText: string; delayMs: number }> {
     const serverUrl = instance.serverUrl || process.env.WAHA_API_URL || 'http://localhost:3000';
     const headers = this.getHeaders(instance);
@@ -331,15 +369,17 @@ export class WahaService {
       ? AntiBanEngine.processSpintax(rawText)
       : rawText;
 
-    // 2. Calcula tempo de digitação humana
-    const typingDelay = AntiBanEngine.calculateTypingDelay(processedText, instance.antiBanConfig);
+    // 2. Calcula tempo de digitação humana ou usa o customizado do nó
+    const typingDelay = customDelayMs !== undefined && customDelayMs > 0
+      ? customDelayMs
+      : AntiBanEngine.calculateTypingDelay(processedText, instance.antiBanConfig);
 
     // 3. Emula "digitando..."
     if (onTypingStatus) onTypingStatus('digitando...');
     await this.sendPresence(instance, cleanChatId, 'composing');
 
     // Aguarda o tempo natural de digitação
-    await new Promise((resolve) => setTimeout(resolve, Math.min(typingDelay, 3500)));
+    await new Promise((resolve) => setTimeout(resolve, typingDelay));
 
     // 4. Para o "digitando..."
     await this.sendPresence(instance, cleanChatId, 'paused');
@@ -355,7 +395,7 @@ export class WahaService {
             chatId: cleanChatId,
             text: processedText
           },
-          { headers, timeout: 6000 }
+          { headers, timeout: 8000 }
         );
       }
     } catch (err: any) {
@@ -370,43 +410,85 @@ export class WahaService {
   }
 
   /**
-   * Envia áudio com simulação de "gravando áudio..."
+   * Envia áudio com simulação de "gravando áudio..." e formato nativo OGG OPUS do WhatsApp
    */
   static async sendVoiceNote(
     instance: WhatsAppInstance,
     chatId: string,
     audioUrl: string,
     durationSec: number = 8,
+    customDelayMs?: number,
     onRecordingStatus?: (status: string) => void
   ): Promise<{ success: boolean }> {
     const serverUrl = instance.serverUrl || process.env.WAHA_API_URL || 'http://localhost:3000';
     const headers = this.getHeaders(instance);
     const cleanChatId = this.formatChatId(chatId);
-    const recordingDelay = AntiBanEngine.calculateAudioRecordingDelay(durationSec);
+
+    // O tempo de gravação respeita o delay configurado no bloco ou a duração do áudio
+    const recordingDelay = customDelayMs !== undefined && customDelayMs > 0
+      ? customDelayMs
+      : AntiBanEngine.calculateAudioRecordingDelay(durationSec);
 
     if (onRecordingStatus) onRecordingStatus('gravando áudio...');
     await this.sendPresence(instance, cleanChatId, 'recording');
 
-    // Aguarda tempo do áudio (máximo 4s na interface para responsividade)
-    await new Promise((resolve) => setTimeout(resolve, Math.min(recordingDelay, 4000)));
+    // Aguarda o tempo exato de gravação configurado (sem cortes prematuros)
+    if (recordingDelay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, recordingDelay));
+    }
 
     await this.sendPresence(instance, cleanChatId, 'paused');
     if (onRecordingStatus) onRecordingStatus('áudio enviado');
 
     try {
       if (serverUrl) {
-        await axios.post(
-          `${serverUrl}/api/sendVoice`,
-          {
+        // Processa o áudio garantindo formato OGG Opus e codificação correta
+        console.log(`[WAHA] Processando áudio para Voice Note PTT (URL/Data)...`);
+        const processed = await AudioConverter.processAudioForWhatsApp(audioUrl);
+
+        const voicePayload: any = {
+          session: instance.id,
+          chatId: cleanChatId,
+          convert: true
+        };
+
+        if (processed.base64) {
+          voicePayload.file = {
+            mimetype: processed.mimetype || 'audio/ogg; codecs=opus',
+            filename: processed.filename || 'voice.ogg',
+            data: processed.base64
+          };
+        } else if (processed.fullUrl) {
+          voicePayload.file = {
+            mimetype: processed.mimetype || 'audio/ogg; codecs=opus',
+            filename: processed.filename || 'voice.ogg',
+            url: processed.fullUrl
+          };
+        } else {
+          voicePayload.file = {
+            mimetype: 'audio/ogg; codecs=opus',
+            filename: 'voice.ogg',
+            url: audioUrl
+          };
+        }
+
+        try {
+          await axios.post(`${serverUrl}/api/sendVoice`, voicePayload, { headers, timeout: 15000 });
+          console.log(`[WAHA] ✅ Áudio Voice Note enviado com sucesso para ${cleanChatId}!`);
+        } catch (voiceErr: any) {
+          console.warn(`[WAHA] Aviso em sendVoice (${voiceErr.message}), tentando fallback sendFile...`);
+          // Fallback para sendFile caso a versão do WAHA prefira sendFile com PTT
+          const fallbackPayload: any = {
             session: instance.id,
             chatId: cleanChatId,
-            file: { url: audioUrl }
-          },
-          { headers, timeout: 8000 }
-        );
+            file: voicePayload.file
+          };
+          await axios.post(`${serverUrl}/api/sendFile`, fallbackPayload, { headers, timeout: 15000 });
+          console.log(`[WAHA] ✅ Áudio enviado via fallback para ${cleanChatId}`);
+        }
       }
     } catch (err: any) {
-      console.warn(`[WAHA] SendVoice error: ${err.message}`);
+      console.error(`[WAHA] Falha geral ao enviar áudio: ${err.message}`);
     }
 
     return { success: true };

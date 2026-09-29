@@ -37,13 +37,17 @@ export function ensurePlayableAudioUrl(url: string | undefined | null): string {
   try {
     const rawBinary = atob(base64);
 
-    // Se já começar com "RIFF" (WAV) ou "ID3" (MP3 com tags), está pronto!
-    if (rawBinary.startsWith('RIFF') || rawBinary.startsWith('ID3')) {
+    // Se já começar com "RIFF" (WAV), "ID3" (MP3 com tags) ou "OggS" (OGG Opus WhatsApp), está pronto!
+    if (rawBinary.startsWith('RIFF') || rawBinary.startsWith('ID3') || rawBinary.startsWith('OggS')) {
       const bytes = new Uint8Array(rawBinary.length);
       for (let i = 0; i < rawBinary.length; i++) {
         bytes[i] = rawBinary.charCodeAt(i);
       }
-      const mime = rawBinary.startsWith('RIFF') ? 'audio/wav' : 'audio/mp3';
+      const mime = rawBinary.startsWith('OggS')
+        ? 'audio/ogg; codecs=opus'
+        : rawBinary.startsWith('RIFF')
+        ? 'audio/wav'
+        : 'audio/mp3';
       const blob = new Blob([bytes], { type: mime });
       const objectUrl = URL.createObjectURL(blob);
       blobUrlCache.set(url, objectUrl);

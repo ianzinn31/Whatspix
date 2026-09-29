@@ -599,34 +599,43 @@ router.post('/webhooks/waha', async (req, res) => {
       if (lead.aiActive) {
         const inst = db.instances.find((i) => i.id === session) || db.instances[0];
 
-        console.log(`[WAHA WEBHOOK] Processando mensagem de ${cleanPhone} no Funil / FlowEngine...`);
-        const flowResult = await FlowEngine.advanceLead(lead, incomingText, inst, remoteJid);
+        // Responde ao webhook imediatamente para o WAHA não sofrer timeout HTTP nem duplicar a chamada
+        res.json({ success: true, processed: true });
 
-        // Fallback: Se o lead não estiver em nenhum funil e o FlowEngine não processou
-        if (!flowResult.processed) {
-          console.log(`[WAHA WEBHOOK] Nenhum funil ativo processado. Acionando IA conversacional livre...`);
-          const aiReply = await AiAgentEngine.handleIncomingLeadMessage(lead, incomingText);
+        // Executa o Funil em segundo plano respeitando estritamente todos os delays e presenças
+        (async () => {
+          try {
+            console.log(`[WAHA WEBHOOK] Processando mensagem de ${cleanPhone} no Funil / FlowEngine...`);
+            const flowResult = await FlowEngine.advanceLead(lead, incomingText, inst, remoteJid);
 
-          const aiMsg: ChatMessage = {
-            id: `msg-ai-${Date.now()}`,
-            leadId: lead.id,
-            sender: 'ai',
-            type: aiReply.actionTaken === 'pix_generated' ? 'pix' : 'text',
-            content: aiReply.replyText,
-            timestamp: new Date().toISOString(),
-            status: 'delivered'
-          };
-          if (!db.messages[lead.id]) db.messages[lead.id] = [];
-          db.messages[lead.id].push(aiMsg);
-          lead.lastMessageAt = aiMsg.timestamp;
+            // Fallback: Se o lead não estiver em nenhum funil e o FlowEngine não processou
+            if (!flowResult.processed) {
+              console.log(`[WAHA WEBHOOK] Nenhum funil ativo processado. Acionando IA conversacional livre...`);
+              const aiReply = await AiAgentEngine.handleIncomingLeadMessage(lead, incomingText);
 
-          // Envia de volta para o WhatsApp real via WAHA
-          if (inst) {
-            WahaService.sendTextMessage(inst, remoteJid, aiReply.replyText).catch((e) =>
-              console.warn('[WAHA Send Error]:', e.message)
-            );
+              const aiMsg: ChatMessage = {
+                id: `msg-ai-${Date.now()}`,
+                leadId: lead.id,
+                sender: 'ai',
+                type: aiReply.actionTaken === 'pix_generated' ? 'pix' : 'text',
+                content: aiReply.replyText,
+                timestamp: new Date().toISOString(),
+                status: 'delivered'
+              };
+              if (!db.messages[lead.id]) db.messages[lead.id] = [];
+              db.messages[lead.id].push(aiMsg);
+              lead.lastMessageAt = aiMsg.timestamp;
+
+              // Envia de volta para o WhatsApp real via WAHA
+              if (inst) {
+                await WahaService.sendTextMessage(inst, remoteJid, aiReply.replyText);
+              }
+            }
+          } catch (bgErr: any) {
+            console.error('[WAHA WEBHOOK Background Error]:', bgErr.message);
           }
-        }
+        })();
+        return;
       }
     }
 

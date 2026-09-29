@@ -80,6 +80,7 @@ export class VoiceService {
       const isAlreadyContainer =
         buffer.length >= 4 &&
         (buffer.slice(0, 4).toString('ascii') === 'RIFF' ||
+          buffer.slice(0, 4).toString('ascii') === 'OggS' ||
           buffer.slice(0, 3).toString('ascii') === 'ID3' ||
           (buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0));
 
