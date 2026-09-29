@@ -823,10 +823,8 @@ export const FlowBuilder: React.FC = () => {
   const [toolsSearchTerm, setToolsSearchTerm] = useState('');
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState(
-    'Funil Low Ticket para infoproduto de R$ 97 com abordagem empática de boas-vindas, áudio explicativo de 25s, quebra de objeção e oferta de downsell de R$ 47 no PIX caso o lead ache caro.'
-  );
-  const [aiProductName, setAiProductName] = useState('Curso de Canva & Criativos Pro');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiProductName, setAiProductName] = useState('');
   const [aiPrice, setAiPrice] = useState('97,00');
   const [aiDownsell, setAiDownsell] = useState('47,00');
   const [aiIncludeVoice, setAiIncludeVoice] = useState(true);
@@ -1436,8 +1434,8 @@ export const FlowBuilder: React.FC = () => {
     setAiGenerateError(null);
     try {
       const generated = await api.generateFunnelWithAi({
-        prompt: aiPrompt || `Funil de vendas para ${aiProductName}`,
-        productName: aiProductName || 'Infoproduto Especialista',
+        prompt: aiPrompt.trim() || (aiProductName.trim() ? `Funil de vendas para ${aiProductName.trim()}` : ''),
+        productName: aiProductName.trim() || undefined,
         price: aiPrice,
         downsellPrice: aiDownsell,
         includeVoice: aiIncludeVoice,
@@ -2227,13 +2225,13 @@ export const FlowBuilder: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-1">
                   <label className="text-xs font-semibold text-slate-300 block mb-1">
-                    Nome do Infoproduto
+                    Nome do Produto / Oferta (Opcional)
                   </label>
                   <input
                     type="text"
                     value={aiProductName}
                     onChange={(e) => setAiProductName(e.target.value)}
-                    placeholder="Ex: Curso de Canva Pro"
+                    placeholder="Ex: Creatina 100% Pura, Mentoria..."
                     className="w-full px-3 py-2 text-xs bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:outline-none focus:border-indigo-500/50"
                   />
                 </div>
@@ -2268,13 +2266,13 @@ export const FlowBuilder: React.FC = () => {
               {/* Prompt Detalhado */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-300 block">
-                  Instruções Estratégicas & Nicho para a IA:
+                  Instruções Estratégicas & Nicho para a IA (Prompt Livre):
                 </label>
                 <textarea
                   rows={3}
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder="Exemplo: Funil de Low Ticket para infoproduto de R$ 97 com abordagem empática de boas-vindas, áudio explicativo de 25s, quebra de objeção e oferta de downsell de R$ 47 no PIX caso o lead ache caro."
+                  placeholder="Exemplo: Crie um funil onde a IA atende o lead o tempo todo tirando dúvidas sobre nossa creatina, entendendo os objetivos do lead, enviando áudio e bônus exclusivo, e fechando a venda no PIX."
                   className="w-full p-3 text-xs bg-slate-950 border border-slate-800 rounded-xl text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500/50 leading-relaxed font-sans"
                 />
               </div>

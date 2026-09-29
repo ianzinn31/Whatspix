@@ -91,12 +91,26 @@ export const POPULAR_NVIDIA_MODELS: NvidiaModelItem[] = [
 
 export const SUPPORTED_PROVIDERS: ProviderDefinition[] = [
   {
+    id: 'openrouter_qwen',
+    name: 'OpenRouter: Qwen 2.5 72B (Arquiteto Estrategista)',
+    baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
+    defaultModel: 'qwen/qwen-2.5-72b-instruct',
+    envKeyName: 'OPENROUTER_API_KEY',
+    envModelName: 'SYSTEM_ARCHITECT_MODEL'
+  },
+  {
+    id: 'openrouter_gpt4omini',
+    name: 'OpenRouter: GPT-4o Mini (Ultra-Rápido)',
+    baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
+    defaultModel: 'openai/gpt-4o-mini',
+    envKeyName: 'OPENROUTER_API_KEY'
+  },
+  {
     id: 'openrouter_glm',
     name: 'OpenRouter: Z.ai GLM 5.3 (Arquiteto & Engenheiro de Funis)',
     baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
     defaultModel: 'z-ai/glm-5.3',
-    envKeyName: 'OPENROUTER_API_KEY',
-    envModelName: 'SYSTEM_ARCHITECT_MODEL'
+    envKeyName: 'OPENROUTER_API_KEY'
   },
   {
     id: 'nvidia_vision',
@@ -115,24 +129,6 @@ export const SUPPORTED_PROVIDERS: ProviderDefinition[] = [
     envKeyName: 'NVIDIA_API_KEY',
     multipleKeysEnvName: 'NVIDIA_API_KEYS',
     envModelName: 'NVIDIA_MODEL_TIER1'
-  },
-  {
-    id: 'nvidia_llama8b',
-    name: 'NVIDIA NIM: Llama 3.1 8B Instruct (Ultra-Rápido)',
-    baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
-    defaultModel: 'meta/llama-3.1-8b-instruct',
-    envKeyName: 'NVIDIA_API_KEY',
-    multipleKeysEnvName: 'NVIDIA_API_KEYS',
-    envModelName: 'NVIDIA_MODEL_TIER5'
-  },
-  {
-    id: 'nvidia_deepseek_r1',
-    name: 'NVIDIA NIM: DeepSeek R1 (Raciocínio & Objeções)',
-    baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
-    defaultModel: 'deepseek-ai/deepseek-r1',
-    envKeyName: 'NVIDIA_API_KEY',
-    multipleKeysEnvName: 'NVIDIA_API_KEYS',
-    envModelName: 'NVIDIA_MODEL_TIER2'
   },
   {
     id: 'nvidia_nemotron',
@@ -188,10 +184,9 @@ export class AiProviderService {
 
   /**
    * Executa a chamada em cascata (Cascading Fallback):
-   * 1. OpenRouter (Z.ai GLM 5.3 para arquitetura de funis)
-   * 2. NVIDIA NIM Llama 3.2 11B Vision / Llama 3.3 70B / 8B
-   * 3. DeepSeek R1 / Nemotron
-   * 4. Se todos falharem -> Fallback para regras locais de fechamento
+   * 1. OpenRouter (Qwen 2.5 72B / GPT-4o Mini / GLM 5.3)
+   * 2. NVIDIA NIM (Llama 3.2 11B Vision Instruct)
+   * 3. Fallback inteligente
    */
   static async generateWithCascade(params: {
     systemPrompt: string;
@@ -224,31 +219,24 @@ export class AiProviderService {
 
     // Itera pelos provedores em cascata
     let providersToTry = [...SUPPORTED_PROVIDERS];
-    const isGlmRequested = !!(modelOverride && (modelOverride.startsWith('z-ai/') || modelOverride.includes('glm')));
-    const isNvidiaModel = !!(
-      modelOverride &&
-      (modelOverride.startsWith('meta/') ||
-        modelOverride.startsWith('nvidia/') ||
-        modelOverride.startsWith('deepseek-ai/') ||
-        modelOverride.startsWith('mistralai/') ||
-        modelOverride.startsWith('qwen/'))
-    );
 
-    if (isGlmRequested) {
-      // Prioriza OpenRouter GLM se disponível, seguido por nvidia_vision e os outros
+    if (modelOverride) {
+      if (modelOverride.startsWith('meta/') || modelOverride.startsWith('nvidia/')) {
+        // Modelo específico da NVIDIA: prioriza provedores NVIDIA
+        providersToTry.sort((a, b) => (a.baseUrl.includes('nvidia.com') ? -1 : 1));
+      } else {
+        // Modelo do OpenRouter: prioriza OpenRouter
+        providersToTry.sort((a, b) => (a.baseUrl.includes('openrouter.ai') ? -1 : 1));
+      }
+    } else {
+      // Chamada sem override: prioriza Qwen 2.5 72B / GPT-4o Mini no OpenRouter, depois NVIDIA NIM Llama 3.2
       providersToTry.sort((a, b) => {
-        if (a.id === 'openrouter_glm') return -1;
-        if (b.id === 'openrouter_glm') return 1;
+        if (a.id === 'openrouter_qwen') return -1;
+        if (b.id === 'openrouter_qwen') return 1;
         if (a.id === 'nvidia_vision') return -1;
         if (b.id === 'nvidia_vision') return 1;
         return 0;
       });
-    } else if (isNvidiaModel) {
-      // Quando um modelo NVIDIA for expressamente solicitado, consulta apenas provedores NVIDIA
-      providersToTry = providersToTry.filter((p) => p.baseUrl.includes('nvidia.com'));
-    } else if (!modelOverride) {
-      // Para chamadas gerais de vendas X1 sem override, prioriza nvidia_vision ou nvidia_llama70b
-      providersToTry.sort((a, b) => (a.id === 'nvidia_vision' ? -1 : 1));
     }
 
     for (const provider of providersToTry) {
@@ -258,28 +246,31 @@ export class AiProviderService {
       }
 
       // Determina o modelo correto para este provedor específico:
-      // Se modelOverride for um modelo de outro ecossistema (ex: 'z-ai/glm-5.3' no NVIDIA NIM),
-      // o NVIDIA NIM não suporta z-ai/glm-5.3, então usamos provider.defaultModel (ex: meta/llama-3.2-11b-vision-instruct).
       const isNvidia = provider.baseUrl.includes('nvidia.com');
+      const isOpenRouter = provider.baseUrl.includes('openrouter.ai');
       let model = provider.defaultModel;
 
       if (modelOverride) {
-        if (isNvidia) {
-          // Se for provedor NVIDIA, só usa modelOverride se NÃO for do OpenRouter/GLM
-          if (!modelOverride.startsWith('z-ai/') && !modelOverride.includes('glm')) {
-            model = modelOverride;
-          } else {
-            model = provider.defaultModel;
-          }
-        } else {
-          // Se for OpenRouter, OpenAI, etc.
+        if (isNvidia && (modelOverride.startsWith('meta/') || modelOverride.startsWith('nvidia/'))) {
           model = modelOverride;
+        } else if (isOpenRouter && !modelOverride.startsWith('meta/') && !modelOverride.startsWith('nvidia/')) {
+          model = modelOverride;
+        } else {
+          // Se o modelOverride não pertencer a este provedor, use o modelo padrão suportado por ele
+          model = provider.defaultModel;
         }
       } else {
         if (provider.id === 'nvidia_llama70b' && db.aiConfig.model) {
           model = db.aiConfig.model;
         } else if (provider.envModelName && process.env[provider.envModelName]) {
-          model = process.env[provider.envModelName]!;
+          const envVal = process.env[provider.envModelName]!.trim();
+          if (isOpenRouter && !envVal.startsWith('meta/') && !envVal.startsWith('nvidia/')) {
+            model = envVal;
+          } else if (isNvidia && (envVal.startsWith('meta/') || envVal.startsWith('nvidia/'))) {
+            model = envVal;
+          } else {
+            model = provider.defaultModel;
+          }
         }
       }
 

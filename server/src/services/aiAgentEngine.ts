@@ -152,48 +152,65 @@ REGRAS DE AÇÕES ESPECIAIS (adicione a tag no final da mensagem se aplicável):
       downsellPrice: userDownsell,
       includeVoice = true,
       voiceModel = 'fish-audio/s2.1-pro-free:free',
+      strategy = 'low_ticket',
       complexity = 'enterprise'
     } = params;
 
     // 1. Extração preliminar de entidades
-    let extractedProduct = userProduct || '';
+    let extractedProduct = userProduct?.trim() || '';
     if (!extractedProduct) {
-      const matchProduct = prompt.match(/(?:curso|mentoria|produto|treinamento|e-?book|comunidade)\s+(?:de\s+)?([^,\.]+)/i);
-      extractedProduct = matchProduct ? matchProduct[0].trim() : 'Método Vendedor X1';
+      const matchProduct = prompt.match(/(?:curso|mentoria|produto|treinamento|e-?book|comunidade|vender|oferta|para)\s+(?:de\s+|a\s+|o\s+|nossa\s+|nosso\s+)?([^,\.]+)/i);
+      if (matchProduct && matchProduct[1]) {
+        extractedProduct = matchProduct[1].replace(/^(nossa|nosso|a|o|um|uma)\s+/i, '').trim();
+      }
     }
 
     let mainPriceStr = String(userPrice || '97,00').replace('R$', '').trim();
     let downsellPriceStr = String(userDownsell || '47,00').replace('R$', '').trim();
 
-    // 2. Consulta à IA via NVIDIA NIM Cascade para enriquecimento de copy e estratégias
+    // 2. Consulta à IA via Cascade para enriquecimento estratégico de copy e arquitetura
     let parsedLlm: any = null;
     try {
       const { AiProviderService } = await import('./aiProviderService.js');
-      const systemPrompt = `Você é um arquiteto mestre de funis de vendas X1 no WhatsApp para infoprodutos de alto nível (padrão 7 dígitos estilo Leona AI).
-Sua missão é estruturar uma esteira de conversão persuasiva, humanizada, com Spintax e ganchos múltiplos para teste A/B.
-Responda EXCLUSIVAMENTE em JSON no formato abaixo, sem comentários adicionais:
+      const systemPrompt = `Você é o Arquiteto Especialista de Funis de Alta Conversão no WhatsApp do WhatsPix.
+Sua missão é criar uma arquitetura de funil no WhatsApp 100% personalizada e estratégica, seguindo rigorosamente a solicitação do usuário.
+Você NUNCA deve criar funis genéricos ou com a mesma estrutura. Adapte os blocos, as falas, os bônus e a mecânica EXCLUSIVAMENTE para o produto, nicho e público-alvo informado no pedido.
+
+Identifique a melhor arquitetura estratégica ("architectureType"):
+- "full_ai_agent": Se o usuário solicitou atendimento feito por IA, consultor inteligente, tirar dúvidas, conduzir a conversa em tempo real e fechar vendas com IA contínua.
+- "cart_recovery": Se solicitou recuperação de carrinho abandonado ou checkout pendente.
+- "vip_launch": Se solicitou lançamento relâmpago, abertura de turmas ou grupo VIP.
+- "distributor_ab": Se solicitou testes A/B ou distribuição por ganchos múltiplos (dor, urgência, prova social).
+- "direct_pitch": Se solicitou fluxo simples e direto de validação rápida.
+
+Responda EXCLUSIVAMENTE em formato JSON (sem comentários antes ou depois):
 {
-  "funnelName": "Nome elegante e chamativo do Funil",
-  "description": "Resumo da estratégia em 1 frase",
-  "triggerKeyword": "QUERO",
-  "welcomeMessage": "Mensagem inicial humanizada com {Oi|Olá|Opa} {{nome}}, rapport imediato e pergunta de qualificação sobre {{produto}}",
-  "audioScript": "Roteiro de áudio natural gravado no WhatsApp (20-30 seg) pelo produtor explicando o valor do {{produto}}",
-  "audioDuration": "0:28",
-  "spinGoal": "Objetivo do copiloto IA: conduzir qualificação SPIN Selling e apresentar a oferta principal de R$ ${mainPriceStr}",
-  "downsellMessage": "Mensagem empática com 50% de desconto relâmpago de R$ ${downsellPriceStr} no PIX para quem achar o valor alto",
+  "productName": "Nome limpo e preciso do produto identificado no pedido (ex: Creatina Monohidratada 100% Pura)",
+  "niche": "Nicho do produto (ex: Suplementação Esportiva)",
+  "targetAudience": "Público-alvo principal (ex: Praticantes de musculação que buscam força e hipertrofia)",
+  "funnelName": "Nome chamativo e estratégico do funil",
+  "description": "Explicação em 1 frase da mecânica e estratégia deste funil",
+  "triggerKeywords": ["QUERO", "CREATINA", "PROMO"],
+  "architectureType": "full_ai_agent",
+  "welcomeMessage": "Mensagem inicial humanizada com {Oi|Olá} {{nome}}, rapport imediato e pergunta de qualificação sobre o produto e objetivos do lead",
+  "includeAudio": true,
+  "audioScript": "Roteiro de áudio natural gravado no WhatsApp (20-30 seg) pelo especialista/produtor falando do produto, benefícios reais e como tomar/usar",
+  "audioDuration": "0:25",
+  "aiAgentGoal": "Instruções completas para a IA de atendimento em tempo real: papel de consultor especialista no nicho, como qualificar o lead, argumentos persuasivos sobre o produto, benefícios específicos, como apresentar os bônus, quebrar objeções e conduzir ao PIX",
+  "bonusText": "Mensagem apresentando os bônus exclusivos pensados para o nicho deste produto para quem fechar agora",
   "mainPrice": "${mainPriceStr}",
-  "downsellPrice": "${downsellPriceStr}"
+  "downsellPrice": "${downsellPriceStr}",
+  "downsellMessage": "Mensagem empática de downsell relâmpago no PIX caso o lead hesite"
 }`;
 
-      const userMessage = `Crie o funil para a seguinte descrição: "${prompt}". Produto: "${extractedProduct}". Preço: R$ ${mainPriceStr}. Downsell: R$ ${downsellPriceStr}.`;
+      const userMessage = `PEDIDO DO USUÁRIO: "${prompt}"\nPRODUTO INFORMADO: "${extractedProduct}"\nPREÇO: R$ ${mainPriceStr}\nDOWNSELL: R$ ${downsellPriceStr}\nESTRATÉGIA: ${strategy}\nCOMPLEXIDADE: ${complexity}`;
 
-      console.log(`[AI ARCHITECT] Gerando cópia e estratégia do funil com IA (${process.env.SYSTEM_ARCHITECT_MODEL || 'meta/llama-3.2-11b-vision-instruct'})...`);
+      console.log(`[AI ARCHITECT] Gerando arquitetura sob medida para "${extractedProduct || prompt.slice(0, 30)}"...`);
       const aiResponse = await AiProviderService.generateWithCascade({
         systemPrompt,
         userMessage,
-        modelOverride: process.env.SYSTEM_ARCHITECT_MODEL || 'meta/llama-3.2-11b-vision-instruct',
-        maxTokens: 2000,
-        temperature: 0.2
+        maxTokens: 1500,
+        temperature: 0.3
       });
 
       if (aiResponse?.replyText) {
@@ -212,41 +229,84 @@ Responda EXCLUSIVAMENTE em JSON no formato abaixo, sem comentários adicionais:
         try {
           parsedLlm = JSON.parse(cleaned);
         } catch (jsonErr) {
-          console.warn('[AI ARCHITECT] Falha ao fazer parse do JSON retornado:', jsonErr);
+          console.warn('[AI ARCHITECT] Falha ao fazer parse do JSON do arquiteto:', jsonErr);
         }
       }
     } catch (err) {
-      console.warn('AiProviderService: Fallback para montagem estruturada de funil:', err);
+      console.warn('AiProviderService: Fallback para montagem inteligente de funil:', err);
     }
 
-    // 3. Fallbacks elegantes caso o LLM retorne dados parciais
+    if (userProduct && userProduct.trim().length > 1) {
+      extractedProduct = userProduct.trim();
+    } else if (parsedLlm?.productName && parsedLlm.productName.trim().length > 1) {
+      extractedProduct = parsedLlm.productName.trim();
+    }
+    if (!extractedProduct) {
+      extractedProduct = 'Produto Especialista';
+    }
+
+    // 3. Resolução da Arquitetura Dinâmica baseada no pedido real do usuário
+    const promptLower = (prompt + ' ' + (strategy || '')).toLowerCase();
+    let resolvedArch: 'full_ai_agent' | 'cart_recovery' | 'vip_launch' | 'distributor_ab' | 'direct_pitch' =
+      parsedLlm?.architectureType || 'full_ai_agent';
+
+    if (
+      promptLower.includes('ia') ||
+      promptLower.includes('atendimento') ||
+      promptLower.includes('atender') ||
+      promptLower.includes('conversar') ||
+      promptLower.includes('convencer') ||
+      promptLower.includes('copiloto') ||
+      promptLower.includes('agente')
+    ) {
+      resolvedArch = 'full_ai_agent';
+    } else if (promptLower.includes('carrinho') || promptLower.includes('abandon') || promptLower.includes('recupera') || strategy === 'recovery') {
+      resolvedArch = 'cart_recovery';
+    } else if (promptLower.includes('lança') || promptLower.includes('lanca') || promptLower.includes('grupo vip') || promptLower.includes('abertura') || strategy === 'launch') {
+      resolvedArch = 'vip_launch';
+    } else if (promptLower.includes('distribuidor') || promptLower.includes('teste a/b') || promptLower.includes('4 saidas') || promptLower.includes('4 saídas')) {
+      resolvedArch = 'distributor_ab';
+    } else if (complexity === 'basic') {
+      resolvedArch = 'direct_pitch';
+    }
+
     const funnelName =
       parsedLlm?.funnelName ||
-      `Funil Enterprise: ${extractedProduct.slice(0, 32)}`;
+      `Funil Inteligente: ${extractedProduct.slice(0, 32)}`;
 
     const description =
       parsedLlm?.description ||
-      `Funil automatizado por IA para ${extractedProduct} com qualificação, áudio humanizado, downsell e PIX.`;
+      `Funil automatizado para ${extractedProduct} desenhado com base nas instruções de atendimento e conversão.`;
 
-    const triggerKeyword = parsedLlm?.triggerKeyword || 'COMEÇAR';
+    const triggerKeyword = Array.isArray(parsedLlm?.triggerKeywords) && parsedLlm.triggerKeywords.length > 0
+      ? parsedLlm.triggerKeywords[0]
+      : 'COMEÇAR';
 
     const welcomeMsg =
       parsedLlm?.welcomeMessage ||
-      `{Oi|Olá|Opa} {{nome}}! Que bom falar com você! Vi que você tem interesse no ${extractedProduct}. Me conta uma coisa: você já tentou aplicar algo parecido antes ou é sua primeira vez?`;
+      `{Oi|Olá} {{nome}}! Que bom falar com você! Vi seu interesse no ${extractedProduct}. Me conta: você já tem experiência com isso ou quer começar agora?`;
 
     const audioScript =
       parsedLlm?.audioScript ||
-      `Oi {{nome}}, passando rapidinho em áudio para te explicar como funciona o ${extractedProduct} na prática. Nossa metodologia foi feita para te gerar resultado rápido com suporte direto!`;
+      `Oi {{nome}}, passando rapidinho em áudio para te explicar como funciona o ${extractedProduct} na prática e te mostrar os resultados comprovados!`;
 
-    const audioDuration = parsedLlm?.audioDuration || '0:28';
+    const audioDuration = parsedLlm?.audioDuration || '0:25';
 
-    const spinGoal =
-      parsedLlm?.spinGoal ||
-      `Conduzir qualificação SPIN selling do lead para o produto ${extractedProduct}, contornar objeções de tempo ou dinheiro e enviar a chave PIX no valor de R$ ${mainPriceStr}.`;
+    const aiAgentGoal =
+      typeof parsedLlm?.aiAgentGoal === 'string'
+        ? parsedLlm.aiAgentGoal
+        : (parsedLlm?.aiAgentGoal && typeof parsedLlm.aiAgentGoal === 'object')
+          ? Object.entries(parsedLlm.aiAgentGoal).map(([k, v]) => `${k}: ${v}`).join('. ')
+          : `Atuar como consultor especialista em ${extractedProduct}. Descobrir as necessidades do lead, quebrar objeções de preço e tempo, apresentar os bônus e conduzir ao PIX de R$ ${mainPriceStr}.`;
+
+    const bonusText =
+      parsedLlm?.bonusOfferText ||
+      parsedLlm?.bonusText ||
+      `🎁 *BÔNUS EXCLUSIVO LIBERADO HOJE:*\n\nFechando agora o seu acesso ao ${extractedProduct}, você garante suporte VIP, bônus especiais e garantia incondicional!`;
 
     const downsellMsg =
       parsedLlm?.downsellMessage ||
-      `Olha só {{nome}}, entendo perfeitamente sua situação de momento. Para não deixar você de fora da turma, consegui liberar uma condição especial exclusiva: de R$ ${mainPriceStr} por apenas R$ ${downsellPriceStr} no PIX à vista! Posso gerar seu link com desconto?`;
+      `Olha só {{nome}}, entendo perfeitamente sua situação de momento. Para não deixar você de fora, liberei uma condição relâmpago: de R$ ${mainPriceStr} por apenas R$ ${downsellPriceStr} no PIX à vista!`;
 
     const finalMainPrice = parsedLlm?.mainPrice || mainPriceStr;
     const finalDownsellPrice = parsedLlm?.downsellPrice || downsellPriceStr;
@@ -276,465 +336,821 @@ Responda EXCLUSIVAMENTE em JSON no formato abaixo, sem comentários adicionais:
     const funnelId = `funnel-ai-${Date.now()}`;
     const nodes: FunnelNode[] = [];
     const edges: FunnelEdge[] = [];
+    const safeProductTag = extractedProduct.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 24);
 
     // =========================================================================
-    // ARQUITETURA 1: ENTERPRISE MESTRE 7 DÍGITOS (ESTILO LEONA AI - 26+ NÓS)
+    // COMPILADOR DE ARQUITETURAS ESTRATÉGICAS PERSONALIZADAS
     // =========================================================================
-    if (complexity === 'enterprise') {
-      // COLUNA 1: Início
-      nodes.push({
-        id: 'node-start',
-        type: 'startNode',
-        position: { x: 60, y: 340 },
-        data: { label: 'Início (Gatilho Meta Ads / Orgânico)' }
-      });
+    switch (resolvedArch) {
+      // -----------------------------------------------------------------------
+      // ARQUITETURA A: ATENDIMENTO 100% COM IA (O AGENTE IA É O HUB CENTRAL)
+      // -----------------------------------------------------------------------
+      case 'full_ai_agent': {
+        const yCenter = 320;
+        let curX = 60;
 
-      // COLUNA 2: Triagem & Distribuidor A/B/C/D
-      nodes.push(
-        {
-          id: 'node-cond-entry',
-          type: 'conditionNode',
-          position: { x: 340, y: 140 },
-          data: { conditionText: 'Etiqueta igual PARTE 1? Caso não atenda continua por aqui' }
-        },
-        {
-          id: 'node-tag-entry',
-          type: 'tagNode',
-          position: { x: 340, y: 340 },
-          data: { tag: 'Lead_Novo_PARTE_1' }
-        },
-        {
-          id: 'node-dist-1',
-          type: 'distributorNode',
-          position: { x: 340, y: 520 },
-          data: {
-            outputs: [
-              { label: 'Saída 1 (Dor)', count: 0 },
-              { label: 'Saída 2 (Urgência)', count: 0 },
-              { label: 'Saída 3 (Prova Social)', count: 0 },
-              { label: 'Saída 4 (Oportunidade)', count: 0 }
-            ]
+        // 1. Início
+        nodes.push({
+          id: 'node-start',
+          type: 'startNode',
+          position: { x: curX, y: yCenter },
+          data: { label: 'Início (Gatilho Anúncio / Palavra-Chave)' }
+        });
+
+        // 2. Etiqueta de Entrada & CRM
+        curX += 280;
+        nodes.push(
+          {
+            id: 'node-tag-entry',
+            type: 'tagNode',
+            position: { x: curX, y: yCenter },
+            data: { tag: `Lead_${safeProductTag}` }
+          },
+          {
+            id: 'node-kanban-entry',
+            type: 'kanbanNode',
+            position: { x: curX, y: yCenter + 180 },
+            data: { kanbanStage: 'lead' }
           }
-        }
-      );
+        );
 
-      // COLUNA 3: 4 Ramificações paralelas de Mensagens & Áudios WhatsApp
-      nodes.push(
-        // Branch 1 (Dor)
-        {
-          id: 'node-msg-split-1',
+        // 3. Mensagem de Boas-Vindas
+        curX += 300;
+        nodes.push({
+          id: 'node-msg-welcome',
           type: 'messageNode',
-          position: { x: 680, y: 80 },
+          position: { x: curX, y: yCenter },
           data: { delay: '3s', text: welcomeMsg }
-        },
-        {
-          id: 'node-audio-1',
-          type: 'audioNode',
-          position: { x: 960, y: 80 },
-          data: { delay: '5s', audioDuration: actualAudioDuration, voiceModel, audioScript, audioUrl: synthesizedAudioUrl }
-        },
-        // Branch 2 (Urgência)
-        {
-          id: 'node-msg-split-2',
-          type: 'messageNode',
-          position: { x: 680, y: 260 },
-          data: { delay: '4s', text: `{Oi|Olá} {{nome}}! Tudo pronto para você conhecer o ${extractedProduct}? As vagas promocionais com desconto encerram hoje!` }
-        },
-        {
-          id: 'node-audio-2',
-          type: 'audioNode',
-          position: { x: 960, y: 260 },
-          data: { delay: '6s', audioDuration: '0:26', voiceModel, audioScript: `Olá {{nome}}, vim em áudio te avisar que as vagas promocionais do ${extractedProduct} estão nos últimos minutos...`, audioUrl: synthesizedAudioUrl }
-        },
-        // Branch 3 (Prova Social)
-        {
-          id: 'node-msg-split-3',
-          type: 'messageNode',
-          position: { x: 680, y: 440 },
-          data: { delay: '3s', text: `{{nome}}, olha só o que nossos alunos estão conquistando com o método ${extractedProduct}!` }
-        },
-        {
-          id: 'node-audio-3',
-          type: 'audioNode',
-          position: { x: 960, y: 440 },
-          data: { delay: '5s', audioDuration: '0:22', voiceModel, audioScript: `{{nome}}, preparei essa gravação para te mostrar como alunos comuns estão aplicando o ${extractedProduct} do zero...`, audioUrl: synthesizedAudioUrl }
-        },
-        // Branch 4 (Oportunidade)
-        {
-          id: 'node-msg-split-4',
-          type: 'messageNode',
-          position: { x: 680, y: 620 },
-          data: { delay: '4s', text: `Fala {{nome}}! Essa é a oportunidade que você esperava para transformar seus resultados com ${extractedProduct}.` }
-        },
-        {
-          id: 'node-audio-4',
-          type: 'audioNode',
-          position: { x: 960, y: 620 },
-          data: { delay: '5s', audioDuration: '0:30', voiceModel, audioScript: `Com certeza você já tentou outras coisas antes, mas o ${extractedProduct} foi desenhado passo a passo para você não travar...`, audioUrl: synthesizedAudioUrl }
-        }
-      );
+        });
 
-      // COLUNA 4: Régua de Esperas Encadeadas (30 min, 1 dia, 3 dias)
-      nodes.push(
-        {
-          id: 'node-wait-1',
-          type: 'waitReplyNode',
-          position: { x: 1260, y: 220 },
-          data: { timeoutDuration: 'Após 30 minutos' }
-        },
-        {
-          id: 'node-wait-2',
-          type: 'waitReplyNode',
-          position: { x: 1260, y: 460 },
-          data: { timeoutDuration: 'Após 1 dia' }
-        },
-        {
-          id: 'node-wait-3',
-          type: 'waitReplyNode',
-          position: { x: 1260, y: 680 },
-          data: { timeoutDuration: 'Após 3 dias' }
+        // 4. Áudio WhatsApp (se habilitado)
+        let lastNodeBeforeAi = 'node-msg-welcome';
+        if (includeVoice) {
+          curX += 300;
+          nodes.push({
+            id: 'node-audio-intro',
+            type: 'audioNode',
+            position: { x: curX, y: yCenter },
+            data: {
+              delay: '5s',
+              audioDuration: actualAudioDuration,
+              voiceModel,
+              audioScript,
+              audioUrl: synthesizedAudioUrl
+            }
+          });
+          lastNodeBeforeAi = 'node-audio-intro';
         }
-      );
 
-      // COLUNA 5: Condicional de Intenção & Entrega de Materiais/PDFs
-      nodes.push(
-        {
-          id: 'node-cond-intent',
+        // 5. O NÓ CENTRAL: AGENTE DE IA EM TEMPO REAL
+        curX += 320;
+        const aiNodeX = curX;
+        nodes.push({
+          id: 'node-ai-agent',
+          type: 'aiAgentNode',
+          position: { x: aiNodeX, y: yCenter },
+          data: {
+            goal: aiAgentGoal,
+            label: `IA Atendente: ${extractedProduct.slice(0, 20)}`
+          }
+        });
+
+        // 6. Espera de Resposta do Lead
+        curX += 320;
+        const waitX = curX;
+        nodes.push({
+          id: 'node-wait-reply',
+          type: 'waitReplyNode',
+          position: { x: waitX, y: yCenter },
+          data: { timeoutDuration: 'Após 25 minutos' }
+        });
+
+        // 7. Condicional de Intenção de Compra
+        curX += 300;
+        const condX = curX;
+        nodes.push({
+          id: 'node-cond-interest',
           type: 'conditionNode',
-          position: { x: 1580, y: 180 },
-          data: { conditionText: 'resposta contém sim OU quero OU preço OU valor OU como funciona?' }
-        },
-        {
-          id: 'node-msg-materials',
+          position: { x: condX, y: yCenter },
+          data: { conditionText: 'Lead confirmou interesse / quer comprar / pediu PIX?' }
+        });
+
+        // 8. RAMO TRUE (SUPERIOR): BÔNUS EXCLUSIVOS + PIX PRINCIPAL + OCR + VENDA
+        const trueY = yCenter - 180;
+        nodes.push(
+          {
+            id: 'node-msg-bonus',
+            type: 'messageNode',
+            position: { x: condX + 320, y: trueY },
+            data: { delay: '3s', text: bonusText }
+          },
+          {
+            id: 'node-pix-main',
+            type: 'pixButtonNode',
+            position: { x: condX + 620, y: trueY },
+            data: {
+              amount: finalMainPrice,
+              pixKey: 'financeiro@whatspix.ia',
+              pixReceiver: 'WhatsPix Oficial',
+              delay: '2s'
+            }
+          },
+          {
+            id: 'node-msg-pix-inst',
+            type: 'messageNode',
+            position: { x: condX + 920, y: trueY },
+            data: {
+              delay: '3s',
+              text: `Copie o código PIX acima e realize o pagamento no app do seu banco. A chave tem validade de 15 minutos!\n\nAssim que pagar, envie o comprovante aqui para confirmação automática imediata.`
+            }
+          },
+          {
+            id: 'node-wait-pix',
+            type: 'waitReplyNode',
+            position: { x: condX + 1220, y: trueY },
+            data: { timeoutDuration: 'Após 45 minutos' }
+          },
+          {
+            id: 'node-ocr-checker',
+            type: 'ocrNode',
+            position: { x: condX + 1520, y: trueY },
+            data: { label: 'Validador Inteligente OCR de Comprovante' }
+          },
+          {
+            id: 'node-approved-sale',
+            type: 'approvedSaleNode',
+            position: { x: condX + 1800, y: trueY },
+            data: { goal: `Venda Aprovada R$ ${finalMainPrice} (Meta Conversions CAPI)` }
+          },
+          {
+            id: 'node-kanban-paid',
+            type: 'kanbanNode',
+            position: { x: condX + 2080, y: trueY },
+            data: { kanbanStage: 'paid' }
+          },
+          {
+            id: 'node-tag-paid',
+            type: 'tagNode',
+            position: { x: condX + 2340, y: trueY },
+            data: { tag: `Cliente_VIP_${safeProductTag}` }
+          }
+        );
+
+        // 9. RAMO FALSE (INFERIOR): IA DE QUEBRA DE OBJEÇÕES + DOWNSELL RELÂMPAGO
+        const falseY = yCenter + 200;
+        nodes.push(
+          {
+            id: 'node-ai-objection',
+            type: 'aiAgentNode',
+            position: { x: condX + 320, y: falseY },
+            data: {
+              goal: `Contorno humanizado de objeções de ${extractedProduct}. Descobrir se a dúvida é preço, tempo ou confiança, reforçar a garantia e apresentar a oportunidade relâmpago de downsell de R$ ${finalDownsellPrice}.`
+            }
+          },
+          {
+            id: 'node-msg-downsell',
+            type: 'messageNode',
+            position: { x: condX + 620, y: falseY },
+            data: { delay: '4s', text: downsellMsg }
+          },
+          {
+            id: 'node-pix-down',
+            type: 'pixButtonNode',
+            position: { x: condX + 920, y: falseY },
+            data: {
+              amount: finalDownsellPrice,
+              pixKey: 'financeiro@whatspix.ia',
+              pixReceiver: 'WhatsPix Oficial'
+            }
+          },
+          {
+            id: 'node-wait-down',
+            type: 'waitReplyNode',
+            position: { x: condX + 1220, y: falseY },
+            data: { timeoutDuration: 'Após 24 horas' }
+          },
+          {
+            id: 'node-ocr-down',
+            type: 'ocrNode',
+            position: { x: condX + 1520, y: falseY },
+            data: { label: 'Validador OCR Downsell' }
+          },
+          {
+            id: 'node-sale-down',
+            type: 'approvedSaleNode',
+            position: { x: condX + 1800, y: falseY },
+            data: { goal: `Venda Downsell R$ ${finalDownsellPrice}` }
+          },
+          {
+            id: 'node-notify-human',
+            type: 'notificationNode',
+            position: { x: condX + 1520, y: falseY + 180 },
+            data: {
+              notificationMessage: `🚨 TRANSBORDO HUMANO: Lead {{nome}} demonstrou dúvida ou não concluiu compra de ${extractedProduct}. Atender manualmente!`
+            }
+          }
+        );
+
+        // CONEXÕES (EDGES) FULL AI AGENT
+        edges.push(
+          { id: 'e-start-tag', source: 'node-start', target: 'node-tag-entry', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-tag-kanban', source: 'node-tag-entry', target: 'node-kanban-entry', style: { stroke: '#6366f1', strokeWidth: 2 } },
+          { id: 'e-tag-welcome', source: 'node-tag-entry', target: 'node-msg-welcome', style: { stroke: '#10b981', strokeWidth: 2 } }
+        );
+
+        if (includeVoice) {
+          edges.push(
+            { id: 'e-welcome-audio', source: 'node-msg-welcome', target: 'node-audio-intro', style: { stroke: '#38bdf8', strokeWidth: 2 } },
+            { id: 'e-audio-ai', source: 'node-audio-intro', target: 'node-ai-agent', style: { stroke: '#8b5cf6', strokeWidth: 2 } }
+          );
+        } else {
+          edges.push(
+            { id: 'e-welcome-ai', source: 'node-msg-welcome', target: 'node-ai-agent', style: { stroke: '#8b5cf6', strokeWidth: 2 } }
+          );
+        }
+
+        edges.push(
+          { id: 'e-ai-wait', source: 'node-ai-agent', target: 'node-wait-reply', style: { stroke: '#8b5cf6', strokeWidth: 2 } },
+          { id: 'e-wait-cond', source: 'node-wait-reply', sourceHandle: 'replied', target: 'node-cond-interest', animated: true, style: { stroke: '#0284c7', strokeWidth: 2 } },
+          { id: 'e-wait-timeout-obj', source: 'node-wait-reply', sourceHandle: 'timeout', target: 'node-ai-objection', style: { stroke: '#ea580c', strokeWidth: 2, strokeDasharray: '4,4' } },
+
+          // Ramo True (Bônus + PIX + Validação)
+          { id: 'e-cond-bonus', source: 'node-cond-interest', sourceHandle: 'true', target: 'node-msg-bonus', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-bonus-pix', source: 'node-msg-bonus', target: 'node-pix-main', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-pix-inst', source: 'node-pix-main', target: 'node-msg-pix-inst', style: { stroke: '#059669', strokeWidth: 2 } },
+          { id: 'e-inst-waitpix', source: 'node-msg-pix-inst', target: 'node-wait-pix', style: { stroke: '#ea580c', strokeWidth: 2 } },
+          { id: 'e-waitpix-ocr', source: 'node-wait-pix', sourceHandle: 'replied', target: 'node-ocr-checker', animated: true, style: { stroke: '#059669', strokeWidth: 2 } },
+          { id: 'e-waitpix-down', source: 'node-wait-pix', sourceHandle: 'timeout', target: 'node-msg-downsell', style: { stroke: '#f43f5e', strokeWidth: 2, strokeDasharray: '4,4' } },
+          { id: 'e-ocr-approved', source: 'node-ocr-checker', target: 'node-approved-sale', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-sale-kanban', source: 'node-approved-sale', target: 'node-kanban-paid', style: { stroke: '#7c3aed', strokeWidth: 2 } },
+          { id: 'e-kanban-tagpaid', source: 'node-kanban-paid', target: 'node-tag-paid', style: { stroke: '#7c3aed', strokeWidth: 2 } },
+
+          // Ramo False (Objeções + Downsell)
+          { id: 'e-cond-obj', source: 'node-cond-interest', sourceHandle: 'false', target: 'node-ai-objection', style: { stroke: '#f43f5e', strokeWidth: 2 } },
+          { id: 'e-obj-downmsg', source: 'node-ai-objection', target: 'node-msg-downsell', style: { stroke: '#f43f5e', strokeWidth: 2 } },
+          { id: 'e-downmsg-downpix', source: 'node-msg-downsell', target: 'node-pix-down', style: { stroke: '#f43f5e', strokeWidth: 2 } },
+          { id: 'e-downpix-wait', source: 'node-pix-down', target: 'node-wait-down', style: { stroke: '#ea580c', strokeWidth: 2 } },
+          { id: 'e-waitdown-ocr', source: 'node-wait-down', sourceHandle: 'replied', target: 'node-ocr-down', animated: true, style: { stroke: '#059669', strokeWidth: 2 } },
+          { id: 'e-waitdown-notify', source: 'node-wait-down', sourceHandle: 'timeout', target: 'node-notify-human', style: { stroke: '#ef4444', strokeWidth: 2, strokeDasharray: '4,4' } },
+          { id: 'e-ocrdown-saledown', source: 'node-ocr-down', target: 'node-sale-down', style: { stroke: '#059669', strokeWidth: 2 } },
+          { id: 'e-saledown-kanban', source: 'node-sale-down', target: 'node-kanban-paid', style: { stroke: '#7c3aed', strokeWidth: 2 } }
+        );
+        break;
+      }
+
+      // -----------------------------------------------------------------------
+      // ARQUITETURA B: RECUPERAÇÃO DE CARRINHO / CHECKOUT ABANDONADO
+      // -----------------------------------------------------------------------
+      case 'cart_recovery': {
+        const yCenter = 320;
+        let curX = 60;
+
+        nodes.push({
+          id: 'node-start',
+          type: 'startNode',
+          position: { x: curX, y: yCenter },
+          data: { label: 'Gatilho: Abandono de Checkout (Kiwify / Hotmart / CAPI)' }
+        });
+
+        curX += 280;
+        nodes.push(
+          {
+            id: 'node-tag-abandon',
+            type: 'tagNode',
+            position: { x: curX, y: yCenter },
+            data: { tag: `Carrinho_Abandonado_${safeProductTag}` }
+          },
+          {
+            id: 'node-kanban-recov',
+            type: 'kanbanNode',
+            position: { x: curX, y: yCenter + 180 },
+            data: { kanbanStage: 'negotiating' }
+          }
+        );
+
+        curX += 280;
+        nodes.push({
+          id: 'node-wait-recov',
+          type: 'waitReplyNode',
+          position: { x: curX, y: yCenter },
+          data: { timeoutDuration: 'Após 15 minutos' }
+        });
+
+        curX += 280;
+        nodes.push({
+          id: 'node-msg-recov',
           type: 'messageNode',
-          position: { x: 1580, y: 400 },
+          position: { x: curX, y: yCenter },
           data: {
             delay: '3s',
-            text: `{{nome}}, estou preparando tudo pra você! Enquanto isso, dá uma olhada nos materiais que separei:`,
-            files: [
-              { name: `${extractedProduct.slice(0, 18)}_Guia_Passo_a_Passo.pdf`, size: '2.4 MB' },
-              { name: `Metodologia_Pratica_${extractedProduct.slice(0, 15)}.pdf`, size: '4.8 MB' },
-              { name: 'Checklist_de_Aceleracao.pdf', size: '1.1 MB' }
-            ]
+            text: `{Oi|Olá} {{nome}}! Vi que você começou sua inscrição no ${extractedProduct}, mas não concluiu. Aconteceu algum erro na página ou no pagamento? Estou aqui para te ajudar!`
           }
-        },
-        {
-          id: 'node-msg-recov-day1',
-          type: 'messageNode',
-          position: { x: 1580, y: 640 },
-          data: {
-            delay: '4s',
-            text: `Oi {{nome}}, passando para saber se você conseguiu abrir o material acima. Ficou com alguma dúvida sobre o ${extractedProduct}? Posso te ajudar a começar hoje!`
-          }
-        }
-      );
+        });
 
-      // COLUNA 6: Segundo Distribuidor & Pitch de Alta Conversão
-      nodes.push(
-        {
-          id: 'node-dist-offer',
-          type: 'distributorNode',
-          position: { x: 1940, y: 220 },
-          data: {
-            outputs: [
-              { label: 'Saída 1 (Oferta PIX)', count: 0 },
-              { label: 'Saída 2 (Cartão 12x)', count: 0 },
-              { label: 'Saída 3 (Combo VIP)', count: 0 }
-            ]
-          }
-        },
-        {
-          id: 'node-msg-pitch',
-          type: 'messageNode',
-          position: { x: 1940, y: 460 },
-          data: {
-            delay: '5s',
-            text: `🚀 *CONDIÇÃO EXCLUSIVA DE ACESSO HOJE:*\n\nDe ~R$ ${parseInt(finalMainPrice) * 2 || 197},00~ por apenas **R$ ${finalMainPrice}** no PIX à vista!\n\n🎁 *BÔNUS LIBERADOS:*\n✅ Acesso Vitalício + Atualizações\n✅ Suporte Direto VIP\n✅ 7 Dias de Garantia Incondicional!`
-          }
+        if (includeVoice) {
+          curX += 300;
+          nodes.push({
+            id: 'node-audio-recov',
+            type: 'audioNode',
+            position: { x: curX, y: yCenter },
+            data: {
+              delay: '5s',
+              audioDuration: actualAudioDuration,
+              voiceModel,
+              audioScript: `Oi {{nome}}, passei em áudio rapidinho porque reservei sua vaga com bônus no ${extractedProduct}. Qualquer dúvida de pagamento ou acesso, me responde aqui!`,
+              audioUrl: synthesizedAudioUrl
+            }
+          });
         }
-      );
 
-      // COLUNA 7: PIX Principal & Rota de Downsell
-      nodes.push(
-        {
-          id: 'node-pix-main',
-          type: 'pixButtonNode',
-          position: { x: 2280, y: 220 },
+        curX += 320;
+        nodes.push({
+          id: 'node-ai-closer',
+          type: 'aiAgentNode',
+          position: { x: curX, y: yCenter },
           data: {
-            amount: finalMainPrice,
-            pixKey: 'financeiro@whatspix.ia',
-            pixReceiver: 'Produtor Oficial',
-            delay: '2s'
+            goal: `Recuperador Inteligente de Vendas para ${extractedProduct}. Identificar se o lead teve problema de cartão, limite ou dúvida, oferecer a condição facilitada no PIX de R$ ${finalDownsellPrice} e enviar chave.`
           }
-        },
-        {
-          id: 'node-msg-pix-inst',
-          type: 'messageNode',
-          position: { x: 2280, y: 420 },
-          data: {
-            delay: '3s',
-            text: `Copie o código PIX acima e realize o pagamento no app do seu banco. A chave tem validade de 15 minutos!\n\nAssim que pagar, envie o comprovante aqui para liberação automática imediata.`
-          }
-        },
-        {
-          id: 'node-msg-downsell',
-          type: 'messageNode',
-          position: { x: 2280, y: 640 },
-          data: { delay: '4s', text: downsellMsg }
-        },
-        {
-          id: 'node-pix-down',
+        });
+
+        curX += 320;
+        nodes.push({
+          id: 'node-pix-recovery',
           type: 'pixButtonNode',
-          position: { x: 2280, y: 840 },
+          position: { x: curX, y: yCenter },
           data: {
             amount: finalDownsellPrice,
             pixKey: 'financeiro@whatspix.ia',
-            pixReceiver: 'Produtor Oficial'
-          }
-        }
-      );
-
-      // COLUNA 8: Validação OCR de Comprovante & Notificação do Atendente
-      nodes.push(
-        {
-          id: 'node-wait-pix',
-          type: 'waitReplyNode',
-          position: { x: 2640, y: 220 },
-          data: { timeoutDuration: 'Após 45 minutos' }
-        },
-        {
-          id: 'node-ocr-checker',
-          type: 'ocrNode',
-          position: { x: 2640, y: 440 },
-          data: { label: 'Validador Inteligente OCR de Comprovante' }
-        },
-        {
-          id: 'node-notify-agent',
-          type: 'notificationNode',
-          position: { x: 2640, y: 640 },
-          data: {
-            notificationMessage: `ATENDENTE: Lead {{nome}} gerou PIX de R$ ${finalMainPrice}! Fazer acompanhamento caso precise de suporte.`
-          }
-        }
-      );
-
-      // COLUNA 9: Agente de IA, Venda Aprovada & CRM Kanban
-      nodes.push(
-        {
-          id: 'node-ai-closer',
-          type: 'aiAgentNode',
-          position: { x: 2980, y: 200 },
-          data: { goal: spinGoal }
-        },
-        {
-          id: 'node-approved-sale',
-          type: 'approvedSaleNode',
-          position: { x: 2980, y: 420 },
-          data: { goal: `Venda Aprovada R$ ${finalMainPrice} (Meta Conversions CAPI)` }
-        },
-        {
-          id: 'node-kanban',
-          type: 'kanbanNode',
-          position: { x: 2980, y: 620 },
-          data: { kanbanStage: 'paid' }
-        },
-        {
-          id: 'node-tag-paid',
-          type: 'tagNode',
-          position: { x: 2980, y: 780 },
-          data: { tag: 'Cliente_VIP_Comprador' }
-        }
-      );
-
-      // ARESTAS (EDGES) ENTERPRISE
-      edges.push(
-        // Coluna 1 -> 2
-        { id: 'e-start-cond', source: 'node-start', target: 'node-cond-entry', style: { stroke: '#10b981', strokeWidth: 2 } },
-        { id: 'e-cond-tag', source: 'node-cond-entry', sourceHandle: 'false', target: 'node-tag-entry', style: { stroke: '#6366f1', strokeWidth: 2 } },
-        { id: 'e-tag-dist', source: 'node-tag-entry', target: 'node-dist-1', style: { stroke: '#d97706', strokeWidth: 2 } },
-
-        // Distribuidor A/B/C/D -> 4 Ramos
-        { id: 'e-dist-out0', source: 'node-dist-1', sourceHandle: 'out-0', target: 'node-msg-split-1', style: { stroke: '#d97706', strokeWidth: 2 } },
-        { id: 'e-split1-audio', source: 'node-msg-split-1', target: 'node-audio-1', style: { stroke: '#38bdf8', strokeWidth: 2 } },
-        { id: 'e-audio1-wait', source: 'node-audio-1', target: 'node-wait-1', style: { stroke: '#f97316', strokeWidth: 2 } },
-
-        { id: 'e-dist-out1', source: 'node-dist-1', sourceHandle: 'out-1', target: 'node-msg-split-2', style: { stroke: '#d97706', strokeWidth: 2 } },
-        { id: 'e-split2-audio', source: 'node-msg-split-2', target: 'node-audio-2', style: { stroke: '#38bdf8', strokeWidth: 2 } },
-        { id: 'e-audio2-wait', source: 'node-audio-2', target: 'node-wait-1', style: { stroke: '#f97316', strokeWidth: 2 } },
-
-        { id: 'e-dist-out2', source: 'node-dist-1', sourceHandle: 'out-2', target: 'node-msg-split-3', style: { stroke: '#d97706', strokeWidth: 2 } },
-        { id: 'e-split3-audio', source: 'node-msg-split-3', target: 'node-audio-3', style: { stroke: '#38bdf8', strokeWidth: 2 } },
-        { id: 'e-audio3-wait', source: 'node-audio-3', target: 'node-wait-1', style: { stroke: '#f97316', strokeWidth: 2 } },
-
-        { id: 'e-dist-out3', source: 'node-dist-1', sourceHandle: 'out-3', target: 'node-msg-split-4', style: { stroke: '#d97706', strokeWidth: 2 } },
-        { id: 'e-split4-audio', source: 'node-msg-split-4', target: 'node-audio-4', style: { stroke: '#38bdf8', strokeWidth: 2 } },
-        { id: 'e-audio4-wait', source: 'node-audio-4', target: 'node-wait-1', style: { stroke: '#f97316', strokeWidth: 2 } },
-
-        // Esperas e Timeouts
-        { id: 'e-wait1-replied', source: 'node-wait-1', sourceHandle: 'replied', target: 'node-cond-intent', animated: true, style: { stroke: '#0284c7', strokeWidth: 2 } },
-        { id: 'e-wait1-timeout', source: 'node-wait-1', sourceHandle: 'timeout', target: 'node-wait-2', style: { stroke: '#ea580c', strokeWidth: 2, strokeDasharray: '4,4' } },
-        { id: 'e-wait2-timeout', source: 'node-wait-2', sourceHandle: 'timeout', target: 'node-msg-recov-day1', style: { stroke: '#ea580c', strokeWidth: 2, strokeDasharray: '4,4' } },
-        { id: 'e-wait2-replied', source: 'node-wait-2', sourceHandle: 'replied', target: 'node-cond-intent', animated: true, style: { stroke: '#0284c7', strokeWidth: 2 } },
-        { id: 'e-recovday1-wait3', source: 'node-msg-recov-day1', target: 'node-wait-3', style: { stroke: '#ea580c', strokeWidth: 2 } },
-        { id: 'e-wait3-replied', source: 'node-wait-3', sourceHandle: 'replied', target: 'node-cond-intent', animated: true, style: { stroke: '#0284c7', strokeWidth: 2 } },
-        { id: 'e-wait3-timeout-down', source: 'node-wait-3', sourceHandle: 'timeout', target: 'node-msg-downsell', style: { stroke: '#f43f5e', strokeWidth: 2 } },
-
-        // Condicional de Intenção -> Materiais / AI Closer
-        { id: 'e-cond-intent-true', source: 'node-cond-intent', sourceHandle: 'true', target: 'node-msg-materials', style: { stroke: '#10b981', strokeWidth: 2 } },
-        { id: 'e-cond-intent-false', source: 'node-cond-intent', sourceHandle: 'false', target: 'node-ai-closer', style: { stroke: '#8b5cf6', strokeWidth: 2 } },
-
-        // Materiais -> Segundo Distribuidor -> Pitch
-        { id: 'e-materials-distoffer', source: 'node-msg-materials', target: 'node-dist-offer', style: { stroke: '#d97706', strokeWidth: 2 } },
-        { id: 'e-distoffer-out0', source: 'node-dist-offer', sourceHandle: 'out-0', target: 'node-msg-pitch', style: { stroke: '#d97706', strokeWidth: 2 } },
-        { id: 'e-distoffer-out1', source: 'node-dist-offer', sourceHandle: 'out-1', target: 'node-msg-pitch', style: { stroke: '#d97706', strokeWidth: 2 } },
-        { id: 'e-distoffer-out2', source: 'node-dist-offer', sourceHandle: 'out-2', target: 'node-msg-pitch', style: { stroke: '#d97706', strokeWidth: 2 } },
-
-        // Pitch -> PIX -> Notificação
-        { id: 'e-pitch-pixmain', source: 'node-msg-pitch', target: 'node-pix-main', style: { stroke: '#059669', strokeWidth: 2 } },
-        { id: 'e-pixmain-pixinst', source: 'node-pix-main', target: 'node-msg-pix-inst', style: { stroke: '#059669', strokeWidth: 2 } },
-        { id: 'e-pixinst-waitpix', source: 'node-msg-pix-inst', target: 'node-wait-pix', style: { stroke: '#ea580c', strokeWidth: 2 } },
-        { id: 'e-pixmain-notify', source: 'node-pix-main', target: 'node-notify-agent', style: { stroke: '#0f766e', strokeWidth: 2 } },
-
-        // Aguarda PIX -> OCR / Downsell
-        { id: 'e-waitpix-replied-ocr', source: 'node-wait-pix', sourceHandle: 'replied', target: 'node-ocr-checker', animated: true, style: { stroke: '#059669', strokeWidth: 2 } },
-        { id: 'e-waitpix-timeout-down', source: 'node-wait-pix', sourceHandle: 'timeout', target: 'node-msg-downsell', style: { stroke: '#f43f5e', strokeWidth: 2, strokeDasharray: '4,4' } },
-        { id: 'e-downmsg-downpix', source: 'node-msg-downsell', target: 'node-pix-down', style: { stroke: '#f43f5e', strokeWidth: 2 } },
-        { id: 'e-downpix-ocr', source: 'node-pix-down', target: 'node-ocr-checker', style: { stroke: '#059669', strokeWidth: 2 } },
-
-        // OCR -> Venda Aprovada -> CRM Kanban -> Tag
-        { id: 'e-ocr-approved', source: 'node-ocr-checker', target: 'node-approved-sale', style: { stroke: '#10b981', strokeWidth: 2 } },
-        { id: 'e-approved-kanban', source: 'node-approved-sale', target: 'node-kanban', style: { stroke: '#7c3aed', strokeWidth: 2 } },
-        { id: 'e-kanban-tagpaid', source: 'node-kanban', target: 'node-tag-paid', style: { stroke: '#7c3aed', strokeWidth: 2 } }
-      );
-    } else {
-      // =========================================================================
-      // ARQUITETURA BÁSICA / INTERMEDIÁRIA (8 A 12 NÓS)
-      // =========================================================================
-      const xBase = 60;
-      const yCenter = 300;
-
-      nodes.push(
-        {
-          id: 'node-start',
-          type: 'startNode',
-          position: { x: xBase, y: yCenter },
-          data: { label: 'Início (Gatilho Anúncio / Palavra-Chave)' }
-        },
-        {
-          id: 'node-msg-welcome',
-          type: 'messageNode',
-          position: { x: xBase + 240, y: yCenter },
-          data: { delay: '3s - 5s', text: welcomeMsg }
-        }
-      );
-
-      let currentX = xBase + 240;
-
-      if (includeVoice) {
-        currentX += 300;
-        nodes.push({
-          id: 'node-audio-pitch',
-          type: 'audioNode',
-          position: { x: currentX, y: yCenter },
-          data: {
-            delay: '6s',
-            audioDuration: actualAudioDuration,
-            voiceModel,
-            audioScript,
-            audioUrl: synthesizedAudioUrl
+            pixReceiver: 'WhatsPix Oficial'
           }
         });
+
+        curX += 300;
+        nodes.push({
+          id: 'node-ocr-recovery',
+          type: 'ocrNode',
+          position: { x: curX, y: yCenter },
+          data: { label: 'Validador OCR de Comprovante de Recuperação' }
+        });
+
+        curX += 280;
+        nodes.push(
+          {
+            id: 'node-approved-sale',
+            type: 'approvedSaleNode',
+            position: { x: curX, y: yCenter },
+            data: { goal: `Venda Recuperada R$ ${finalDownsellPrice}` }
+          },
+          {
+            id: 'node-kanban-paid',
+            type: 'kanbanNode',
+            position: { x: curX + 260, y: yCenter },
+            data: { kanbanStage: 'paid' }
+          }
+        );
+
+        // Edges Recuperação
+        edges.push(
+          { id: 'e-start-tag', source: 'node-start', target: 'node-tag-abandon', style: { stroke: '#f59e0b', strokeWidth: 2 } },
+          { id: 'e-tag-kanban', source: 'node-tag-abandon', target: 'node-kanban-recov', style: { stroke: '#6366f1', strokeWidth: 2 } },
+          { id: 'e-tag-wait', source: 'node-tag-abandon', target: 'node-wait-recov', style: { stroke: '#f59e0b', strokeWidth: 2 } },
+          { id: 'e-wait-msg', source: 'node-wait-recov', sourceHandle: 'timeout', target: 'node-msg-recov', style: { stroke: '#10b981', strokeWidth: 2 } }
+        );
+
+        if (includeVoice) {
+          edges.push(
+            { id: 'e-msg-audio', source: 'node-msg-recov', target: 'node-audio-recov', style: { stroke: '#38bdf8', strokeWidth: 2 } },
+            { id: 'e-audio-ai', source: 'node-audio-recov', target: 'node-ai-closer', style: { stroke: '#8b5cf6', strokeWidth: 2 } }
+          );
+        } else {
+          edges.push(
+            { id: 'e-msg-ai', source: 'node-msg-recov', target: 'node-ai-closer', style: { stroke: '#8b5cf6', strokeWidth: 2 } }
+          );
+        }
+
+        edges.push(
+          { id: 'e-ai-pix', source: 'node-ai-closer', target: 'node-pix-recovery', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-pix-ocr', source: 'node-pix-recovery', target: 'node-ocr-recovery', style: { stroke: '#059669', strokeWidth: 2 } },
+          { id: 'e-ocr-sale', source: 'node-ocr-recovery', target: 'node-approved-sale', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-sale-kanban', source: 'node-approved-sale', target: 'node-kanban-paid', style: { stroke: '#7c3aed', strokeWidth: 2 } }
+        );
+        break;
       }
 
-      currentX += 300;
-      nodes.push({
-        id: 'node-wait-1',
-        type: 'waitReplyNode',
-        position: { x: currentX, y: yCenter },
-        data: { timeoutDuration: 'Após 30 minutos' }
-      });
+      // -----------------------------------------------------------------------
+      // ARQUITETURA C: LANÇAMENTO / GRUPO VIP
+      // -----------------------------------------------------------------------
+      case 'vip_launch': {
+        const yCenter = 320;
+        let curX = 60;
 
-      currentX += 300;
-      const condX = currentX;
-      nodes.push({
-        id: 'node-cond-1',
-        type: 'conditionNode',
-        position: { x: condX, y: yCenter },
-        data: { conditionText: 'Etiqueta igual Compra ou Interesse_Confirmado' }
-      });
+        nodes.push({
+          id: 'node-start',
+          type: 'startNode',
+          position: { x: curX, y: yCenter },
+          data: { label: 'Início: Entrada Grupo VIP / Lançamento' }
+        });
 
-      nodes.push(
-        {
-          id: 'node-tag-main',
-          type: 'tagNode',
-          position: { x: condX + 310, y: yCenter - 160 },
-          data: { tag: 'Lead_Qualificado_VIP' }
-        },
-        {
+        curX += 280;
+        nodes.push(
+          {
+            id: 'node-tag-vip',
+            type: 'tagNode',
+            position: { x: curX, y: yCenter },
+            data: { tag: `VIP_Lancamento_${safeProductTag}` }
+          },
+          {
+            id: 'node-kanban-lead',
+            type: 'kanbanNode',
+            position: { x: curX, y: yCenter + 180 },
+            data: { kanbanStage: 'lead' }
+          }
+        );
+
+        curX += 280;
+        nodes.push({
+          id: 'node-msg-welcome',
+          type: 'messageNode',
+          position: { x: curX, y: yCenter },
+          data: {
+            delay: '3s',
+            text: `{Oi|Olá} {{nome}}! Seja bem-vindo ao grupo VIP oficial do lançamento de ${extractedProduct}! Aqui você terá acesso antecipado com bônus exclusivos.`
+          }
+        });
+
+        if (includeVoice) {
+          curX += 300;
+          nodes.push({
+            id: 'node-audio-launch',
+            type: 'audioNode',
+            position: { x: curX, y: yCenter },
+            data: {
+              delay: '5s',
+              audioDuration: actualAudioDuration,
+              voiceModel,
+              audioScript,
+              audioUrl: synthesizedAudioUrl
+            }
+          });
+        }
+
+        curX += 320;
+        nodes.push({
+          id: 'node-ai-agent',
+          type: 'aiAgentNode',
+          position: { x: curX, y: yCenter },
+          data: {
+            goal: `Plantão Especialista de Dúvidas do Lançamento de ${extractedProduct}. Explicar benefícios, método, cronograma de liberação, garantia e encaminhar para a oferta oficial de abertura.`
+          }
+        });
+
+        curX += 320;
+        nodes.push({
+          id: 'node-msg-bonus',
+          type: 'messageNode',
+          position: { x: curX, y: yCenter },
+          data: { delay: '3s', text: bonusText }
+        });
+
+        curX += 300;
+        nodes.push({
           id: 'node-pix-main',
           type: 'pixButtonNode',
-          position: { x: condX + 590, y: yCenter - 160 },
-          data: { amount: finalMainPrice, pixKey: 'contato@whatspix.ia', pixReceiver: 'Produtor Oficial' }
-        },
-        {
-          id: 'node-sale-main',
-          type: 'approvedSaleNode',
-          position: { x: condX + 870, y: yCenter - 160 },
-          data: { goal: 'Venda Principal R$ ' + finalMainPrice }
-        },
-        {
-          id: 'node-tag-down',
-          type: 'tagNode',
-          position: { x: condX + 310, y: yCenter + 160 },
-          data: { tag: 'Objecao_Preco_Downsell' }
-        },
-        {
-          id: 'node-msg-down',
-          type: 'messageNode',
-          position: { x: condX + 590, y: yCenter + 160 },
-          data: { delay: '5s', text: downsellMsg }
-        },
-        {
-          id: 'node-wait-down',
-          type: 'waitReplyNode',
-          position: { x: condX + 890, y: yCenter + 160 },
-          data: { timeoutDuration: 'Após 24 horas' }
-        },
-        {
-          id: 'node-pix-down',
-          type: 'pixButtonNode',
-          position: { x: condX + 1180, y: yCenter + 160 },
-          data: { amount: finalDownsellPrice, pixKey: 'contato@whatspix.ia', pixReceiver: 'Produtor Oficial' }
-        },
-        {
-          id: 'node-sale-down',
-          type: 'approvedSaleNode',
-          position: { x: condX + 1460, y: yCenter + 160 },
-          data: { goal: 'Venda Downsell R$ ' + finalDownsellPrice }
-        }
-      );
+          position: { x: curX, y: yCenter },
+          data: {
+            amount: finalMainPrice,
+            pixKey: 'financeiro@whatspix.ia',
+            pixReceiver: 'WhatsPix Oficial'
+          }
+        });
 
-      // Edges básicos
-      edges.push({ id: 'e-start-msg', source: 'node-start', target: 'node-msg-welcome', style: { stroke: '#10b981', strokeWidth: 2 } });
-      if (includeVoice) {
-        edges.push(
-          { id: 'e-msg-audio', source: 'node-msg-welcome', target: 'node-audio-pitch', style: { stroke: '#38bdf8', strokeWidth: 2 } },
-          { id: 'e-audio-wait', source: 'node-audio-pitch', target: 'node-wait-1', style: { stroke: '#f97316', strokeWidth: 2 } }
+        curX += 300;
+        nodes.push({
+          id: 'node-ocr-checker',
+          type: 'ocrNode',
+          position: { x: curX, y: yCenter },
+          data: { label: 'Validador Inteligente OCR Lançamento' }
+        });
+
+        curX += 280;
+        nodes.push(
+          {
+            id: 'node-approved-sale',
+            type: 'approvedSaleNode',
+            position: { x: curX, y: yCenter },
+            data: { goal: `Venda Lançamento VIP R$ ${finalMainPrice}` }
+          },
+          {
+            id: 'node-kanban-paid',
+            type: 'kanbanNode',
+            position: { x: curX + 260, y: yCenter },
+            data: { kanbanStage: 'paid' }
+          }
         );
-      } else {
-        edges.push({ id: 'e-msg-wait', source: 'node-msg-welcome', target: 'node-wait-1', style: { stroke: '#f97316', strokeWidth: 2 } });
+
+        edges.push(
+          { id: 'e-start-tag', source: 'node-start', target: 'node-tag-vip', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-tag-kanban', source: 'node-tag-vip', target: 'node-kanban-lead', style: { stroke: '#6366f1', strokeWidth: 2 } },
+          { id: 'e-tag-welcome', source: 'node-tag-vip', target: 'node-msg-welcome', style: { stroke: '#10b981', strokeWidth: 2 } }
+        );
+
+        if (includeVoice) {
+          edges.push(
+            { id: 'e-welcome-audio', source: 'node-msg-welcome', target: 'node-audio-launch', style: { stroke: '#38bdf8', strokeWidth: 2 } },
+            { id: 'e-audio-ai', source: 'node-audio-launch', target: 'node-ai-agent', style: { stroke: '#8b5cf6', strokeWidth: 2 } }
+          );
+        } else {
+          edges.push(
+            { id: 'e-welcome-ai', source: 'node-msg-welcome', target: 'node-ai-agent', style: { stroke: '#8b5cf6', strokeWidth: 2 } }
+          );
+        }
+
+        edges.push(
+          { id: 'e-ai-bonus', source: 'node-ai-agent', target: 'node-msg-bonus', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-bonus-pix', source: 'node-msg-bonus', target: 'node-pix-main', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-pix-ocr', source: 'node-pix-main', target: 'node-ocr-checker', style: { stroke: '#059669', strokeWidth: 2 } },
+          { id: 'e-ocr-sale', source: 'node-ocr-checker', target: 'node-approved-sale', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-sale-kanban', source: 'node-approved-sale', target: 'node-kanban-paid', style: { stroke: '#7c3aed', strokeWidth: 2 } }
+        );
+        break;
       }
-      edges.push(
-        { id: 'e-wait-cond', source: 'node-wait-1', sourceHandle: 'replied', target: 'node-cond-1', animated: true, style: { stroke: '#0284c7', strokeWidth: 2 } },
-        { id: 'e-cond-tag-main', source: 'node-cond-1', sourceHandle: 'true', target: 'node-tag-main', style: { stroke: '#10b981', strokeWidth: 2 } },
-        { id: 'e-tag-pix-main', source: 'node-tag-main', target: 'node-pix-main', animated: true, style: { stroke: '#10b981', strokeWidth: 2 } },
-        { id: 'e-pix-sale-main', source: 'node-pix-main', target: 'node-sale-main', style: { stroke: '#059669', strokeWidth: 2 } },
-        { id: 'e-cond-tag-down', source: 'node-cond-1', sourceHandle: 'false', target: 'node-tag-down', style: { stroke: '#f43f5e', strokeWidth: 2 } },
-        { id: 'e-tag-downmsg', source: 'node-tag-down', target: 'node-msg-down', style: { stroke: '#f43f5e', strokeWidth: 2 } },
-        { id: 'e-downmsg-downwait', source: 'node-msg-down', target: 'node-wait-down', style: { stroke: '#ea580c', strokeWidth: 2 } },
-        { id: 'e-downwait-downpix', source: 'node-wait-down', sourceHandle: 'replied', target: 'node-pix-down', animated: true, style: { stroke: '#10b981', strokeWidth: 2 } },
-        { id: 'e-downpix-downsale', source: 'node-pix-down', target: 'node-sale-down', style: { stroke: '#059669', strokeWidth: 2 } }
-      );
+
+      // -----------------------------------------------------------------------
+      // ARQUITETURA D: DISTRIBUIDOR A/B MULTI-GANCHOS (DOR, URGÊNCIA, PROVA SOCIAL)
+      // -----------------------------------------------------------------------
+      case 'distributor_ab': {
+        nodes.push(
+          {
+            id: 'node-start',
+            type: 'startNode',
+            position: { x: 60, y: 340 },
+            data: { label: 'Início (Gatilho Meta Ads / Orgânico)' }
+          },
+          {
+            id: 'node-tag-entry',
+            type: 'tagNode',
+            position: { x: 340, y: 340 },
+            data: { tag: `Lead_${safeProductTag}` }
+          },
+          {
+            id: 'node-dist-1',
+            type: 'distributorNode',
+            position: { x: 340, y: 520 },
+            data: {
+              outputs: [
+                { label: 'Saída 1 (Dor)', count: 0 },
+                { label: 'Saída 2 (Urgência)', count: 0 },
+                { label: 'Saída 3 (Prova Social)', count: 0 },
+                { label: 'Saída 4 (Oportunidade)', count: 0 }
+              ]
+            }
+          },
+          // Branch 1 (Dor)
+          {
+            id: 'node-msg-split-1',
+            type: 'messageNode',
+            position: { x: 680, y: 80 },
+            data: { delay: '3s', text: welcomeMsg }
+          },
+          {
+            id: 'node-audio-1',
+            type: 'audioNode',
+            position: { x: 960, y: 80 },
+            data: { delay: '5s', audioDuration: actualAudioDuration, voiceModel, audioScript, audioUrl: synthesizedAudioUrl }
+          },
+          // Branch 2 (Urgência)
+          {
+            id: 'node-msg-split-2',
+            type: 'messageNode',
+            position: { x: 680, y: 260 },
+            data: { delay: '4s', text: `{Oi|Olá} {{nome}}! As condições especiais de ${extractedProduct} encerram hoje!` }
+          },
+          {
+            id: 'node-audio-2',
+            type: 'audioNode',
+            position: { x: 960, y: 260 },
+            data: { delay: '6s', audioDuration: '0:26', voiceModel, audioScript: `Olá {{nome}}, vim em áudio te avisar que as vagas promocionais de ${extractedProduct} estão nos últimos minutos...`, audioUrl: synthesizedAudioUrl }
+          },
+          // Branch 3 (Prova Social)
+          {
+            id: 'node-msg-split-3',
+            type: 'messageNode',
+            position: { x: 680, y: 440 },
+            data: { delay: '3s', text: `{{nome}}, veja os resultados reais que nossos clientes estão tendo com ${extractedProduct}!` }
+          },
+          {
+            id: 'node-audio-3',
+            type: 'audioNode',
+            position: { x: 960, y: 440 },
+            data: { delay: '5s', audioDuration: '0:22', voiceModel, audioScript: `{{nome}}, preparei essa gravação para te mostrar como nossos clientes estão aplicando ${extractedProduct}...`, audioUrl: synthesizedAudioUrl }
+          },
+          // Branch 4 (Oportunidade)
+          {
+            id: 'node-msg-split-4',
+            type: 'messageNode',
+            position: { x: 680, y: 620 },
+            data: { delay: '4s', text: `Fala {{nome}}! Essa é a oportunidade que você esperava com ${extractedProduct}.` }
+          },
+          {
+            id: 'node-audio-4',
+            type: 'audioNode',
+            position: { x: 960, y: 620 },
+            data: { delay: '5s', audioDuration: '0:30', voiceModel, audioScript: `Com certeza você já tentou outras soluções, mas ${extractedProduct} foi desenhado passo a passo para o seu sucesso...`, audioUrl: synthesizedAudioUrl }
+          },
+          // Espera Central & Hub de IA
+          {
+            id: 'node-wait-1',
+            type: 'waitReplyNode',
+            position: { x: 1260, y: 340 },
+            data: { timeoutDuration: 'Após 30 minutos' }
+          },
+          {
+            id: 'node-ai-closer',
+            type: 'aiAgentNode',
+            position: { x: 1560, y: 340 },
+            data: { goal: aiAgentGoal }
+          },
+          {
+            id: 'node-msg-bonus',
+            type: 'messageNode',
+            position: { x: 1860, y: 340 },
+            data: { delay: '3s', text: bonusText }
+          },
+          {
+            id: 'node-pix-main',
+            type: 'pixButtonNode',
+            position: { x: 2160, y: 340 },
+            data: {
+              amount: finalMainPrice,
+              pixKey: 'financeiro@whatspix.ia',
+              pixReceiver: 'WhatsPix Oficial'
+            }
+          },
+          {
+            id: 'node-ocr-checker',
+            type: 'ocrNode',
+            position: { x: 2460, y: 340 },
+            data: { label: 'Validador OCR de Comprovante' }
+          },
+          {
+            id: 'node-approved-sale',
+            type: 'approvedSaleNode',
+            position: { x: 2740, y: 340 },
+            data: { goal: `Venda Aprovada R$ ${finalMainPrice}` }
+          },
+          {
+            id: 'node-kanban-paid',
+            type: 'kanbanNode',
+            position: { x: 3000, y: 340 },
+            data: { kanbanStage: 'paid' }
+          }
+        );
+
+        edges.push(
+          { id: 'e-start-tag', source: 'node-start', target: 'node-tag-entry', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-tag-dist', source: 'node-tag-entry', target: 'node-dist-1', style: { stroke: '#d97706', strokeWidth: 2 } },
+          // 4 saídas
+          { id: 'e-dist-out0', source: 'node-dist-1', sourceHandle: 'out-0', target: 'node-msg-split-1', style: { stroke: '#d97706', strokeWidth: 2 } },
+          { id: 'e-split1-audio', source: 'node-msg-split-1', target: 'node-audio-1', style: { stroke: '#38bdf8', strokeWidth: 2 } },
+          { id: 'e-audio1-wait', source: 'node-audio-1', target: 'node-wait-1', style: { stroke: '#f97316', strokeWidth: 2 } },
+
+          { id: 'e-dist-out1', source: 'node-dist-1', sourceHandle: 'out-1', target: 'node-msg-split-2', style: { stroke: '#d97706', strokeWidth: 2 } },
+          { id: 'e-split2-audio', source: 'node-msg-split-2', target: 'node-audio-2', style: { stroke: '#38bdf8', strokeWidth: 2 } },
+          { id: 'e-audio2-wait', source: 'node-audio-2', target: 'node-wait-1', style: { stroke: '#f97316', strokeWidth: 2 } },
+
+          { id: 'e-dist-out2', source: 'node-dist-1', sourceHandle: 'out-2', target: 'node-msg-split-3', style: { stroke: '#d97706', strokeWidth: 2 } },
+          { id: 'e-split3-audio', source: 'node-msg-split-3', target: 'node-audio-3', style: { stroke: '#38bdf8', strokeWidth: 2 } },
+          { id: 'e-audio3-wait', source: 'node-audio-3', target: 'node-wait-1', style: { stroke: '#f97316', strokeWidth: 2 } },
+
+          { id: 'e-dist-out3', source: 'node-dist-1', sourceHandle: 'out-3', target: 'node-msg-split-4', style: { stroke: '#d97706', strokeWidth: 2 } },
+          { id: 'e-split4-audio', source: 'node-msg-split-4', target: 'node-audio-4', style: { stroke: '#38bdf8', strokeWidth: 2 } },
+          { id: 'e-audio4-wait', source: 'node-audio-4', target: 'node-wait-1', style: { stroke: '#f97316', strokeWidth: 2 } },
+
+          { id: 'e-wait-ai', source: 'node-wait-1', sourceHandle: 'replied', target: 'node-ai-closer', animated: true, style: { stroke: '#8b5cf6', strokeWidth: 2 } },
+          { id: 'e-ai-bonus', source: 'node-ai-closer', target: 'node-msg-bonus', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-bonus-pix', source: 'node-msg-bonus', target: 'node-pix-main', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-pix-ocr', source: 'node-pix-main', target: 'node-ocr-checker', style: { stroke: '#059669', strokeWidth: 2 } },
+          { id: 'e-ocr-sale', source: 'node-ocr-checker', target: 'node-approved-sale', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-sale-kanban', source: 'node-approved-sale', target: 'node-kanban-paid', style: { stroke: '#7c3aed', strokeWidth: 2 } }
+        );
+        break;
+      }
+
+      // -----------------------------------------------------------------------
+      // ARQUITETURA E: FLUXO DIRETO / VALIDAÇÃO ENXUTA (DIRECT PITCH)
+      // -----------------------------------------------------------------------
+      case 'direct_pitch':
+      default: {
+        const yCenter = 320;
+        let curX = 60;
+
+        nodes.push({
+          id: 'node-start',
+          type: 'startNode',
+          position: { x: curX, y: yCenter },
+          data: { label: 'Início (Gatilho Anúncio / Palavra-Chave)' }
+        });
+
+        curX += 280;
+        nodes.push({
+          id: 'node-tag-entry',
+          type: 'tagNode',
+          position: { x: curX, y: yCenter },
+          data: { tag: `Lead_${safeProductTag}` }
+        });
+
+        curX += 280;
+        nodes.push({
+          id: 'node-msg-welcome',
+          type: 'messageNode',
+          position: { x: curX, y: yCenter },
+          data: { delay: '3s', text: welcomeMsg }
+        });
+
+        if (includeVoice) {
+          curX += 300;
+          nodes.push({
+            id: 'node-audio-pitch',
+            type: 'audioNode',
+            position: { x: curX, y: yCenter },
+            data: {
+              delay: '5s',
+              audioDuration: actualAudioDuration,
+              voiceModel,
+              audioScript,
+              audioUrl: synthesizedAudioUrl
+            }
+          });
+        }
+
+        curX += 320;
+        nodes.push({
+          id: 'node-ai-closer',
+          type: 'aiAgentNode',
+          position: { x: curX, y: yCenter },
+          data: { goal: aiAgentGoal }
+        });
+
+        curX += 300;
+        nodes.push({
+          id: 'node-pix-main',
+          type: 'pixButtonNode',
+          position: { x: curX, y: yCenter },
+          data: {
+            amount: finalMainPrice,
+            pixKey: 'financeiro@whatspix.ia',
+            pixReceiver: 'WhatsPix Oficial'
+          }
+        });
+
+        curX += 300;
+        nodes.push({
+          id: 'node-ocr-checker',
+          type: 'ocrNode',
+          position: { x: curX, y: yCenter },
+          data: { label: 'Validador Inteligente OCR de Comprovante' }
+        });
+
+        curX += 280;
+        nodes.push(
+          {
+            id: 'node-approved-sale',
+            type: 'approvedSaleNode',
+            position: { x: curX, y: yCenter },
+            data: { goal: `Venda Aprovada R$ ${finalMainPrice}` }
+          },
+          {
+            id: 'node-kanban-paid',
+            type: 'kanbanNode',
+            position: { x: curX + 260, y: yCenter },
+            data: { kanbanStage: 'paid' }
+          }
+        );
+
+        edges.push(
+          { id: 'e-start-tag', source: 'node-start', target: 'node-tag-entry', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-tag-welcome', source: 'node-tag-entry', target: 'node-msg-welcome', style: { stroke: '#10b981', strokeWidth: 2 } }
+        );
+
+        if (includeVoice) {
+          edges.push(
+            { id: 'e-welcome-audio', source: 'node-msg-welcome', target: 'node-audio-pitch', style: { stroke: '#38bdf8', strokeWidth: 2 } },
+            { id: 'e-audio-ai', source: 'node-audio-pitch', target: 'node-ai-closer', style: { stroke: '#8b5cf6', strokeWidth: 2 } }
+          );
+        } else {
+          edges.push(
+            { id: 'e-welcome-ai', source: 'node-msg-welcome', target: 'node-ai-closer', style: { stroke: '#8b5cf6', strokeWidth: 2 } }
+          );
+        }
+
+        edges.push(
+          { id: 'e-ai-pix', source: 'node-ai-closer', target: 'node-pix-main', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-pix-ocr', source: 'node-pix-main', target: 'node-ocr-checker', style: { stroke: '#059669', strokeWidth: 2 } },
+          { id: 'e-ocr-sale', source: 'node-ocr-checker', target: 'node-approved-sale', style: { stroke: '#10b981', strokeWidth: 2 } },
+          { id: 'e-sale-kanban', source: 'node-approved-sale', target: 'node-kanban-paid', style: { stroke: '#7c3aed', strokeWidth: 2 } }
+        );
+        break;
+      }
     }
 
     return {
