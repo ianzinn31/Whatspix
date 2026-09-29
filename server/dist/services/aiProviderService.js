@@ -1,0 +1,382 @@
+import axios from 'axios';
+import { db } from '../store/db.js';
+export const POPULAR_NVIDIA_MODELS = [
+    {
+        id: 'meta/llama-3.2-11b-vision-instruct',
+        name: 'Llama 3.2 11B Vision Instruct',
+        creator: 'Meta / NVIDIA',
+        description: 'Ultra-rápido (latência sub-segundo ~700ms), visão multimodal OCR e excelente português brasileiro.',
+        contextLength: 128000,
+        recommendedRole: 'Vendas X1, Fechamento & Multimodal (Ativo)',
+        isDefault: true
+    },
+    {
+        id: 'meta/llama-3.3-70b-instruct',
+        name: 'Llama 3.3 70B Instruct',
+        creator: 'Meta / NVIDIA',
+        description: 'Estado da arte em persuasão, português brasileiro natural e fechamento de vendas.',
+        contextLength: 128000,
+        recommendedRole: 'Vendas X1 & Fechamento Avançado'
+    },
+    {
+        id: 'deepseek-ai/deepseek-r1',
+        name: 'DeepSeek R1',
+        creator: 'DeepSeek / NVIDIA',
+        description: 'Raciocínio profundo, resolução de objeções complexas e argumentação lógica.',
+        contextLength: 64000,
+        recommendedRole: 'Raciocínio Lógico & Quebra de Objeções'
+    },
+    {
+        id: 'nvidia/llama-3.1-nemotron-70b-instruct',
+        name: 'Llama 3.1 Nemotron 70B',
+        creator: 'NVIDIA',
+        description: 'Modelo otimizado pela própria NVIDIA com alinhamento refinado para conversação humana.',
+        contextLength: 128000,
+        recommendedRole: 'Conversação Humana & Pós-Venda'
+    },
+    {
+        id: 'meta/llama-3.1-405b-instruct',
+        name: 'Llama 3.1 405B Instruct',
+        creator: 'Meta / NVIDIA',
+        description: 'O maior modelo de pesos abertos do mundo. Máxima capacidade de entendimento.',
+        contextLength: 128000,
+        recommendedRole: 'Super Inteligência & Casos Complexos'
+    },
+    {
+        id: 'meta/llama-3.1-8b-instruct',
+        name: 'Llama 3.1 8B Instruct',
+        creator: 'Meta / NVIDIA',
+        description: 'Ultra-rápido com latência mínima para respostas instantâneas no WhatsApp.',
+        contextLength: 128000,
+        recommendedRole: 'Velocidade Máxima & Respostas Curtas'
+    },
+    {
+        id: 'mistralai/mixtral-8x22b-instruct-v0.1',
+        name: 'Mixtral 8x22B Instruct',
+        creator: 'Mistral AI / NVIDIA',
+        description: 'Arquitetura Mixture-of-Experts para alta precisão em regras e instruções.',
+        contextLength: 64000,
+        recommendedRole: 'Precisão em Regras de Negócio'
+    },
+    {
+        id: 'qwen/qwen2.5-72b-instruct',
+        name: 'Qwen 2.5 72B Instruct',
+        creator: 'Alibaba / NVIDIA',
+        description: 'Excelente para tarefas multilíngues e instruções estruturadas.',
+        contextLength: 128000,
+        recommendedRole: 'Instruções Detalhadas'
+    }
+];
+export const SUPPORTED_PROVIDERS = [
+    {
+        id: 'nvidia_glm',
+        name: 'NVIDIA NIM: Z.ai GLM 5.3 (Arquiteto & Engenheiro de Funis)',
+        baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
+        defaultModel: 'z-ai/glm-5.3',
+        envKeyName: 'NVIDIA_API_KEY',
+        multipleKeysEnvName: 'NVIDIA_API_KEYS',
+        envModelName: 'SYSTEM_ARCHITECT_MODEL'
+    },
+    {
+        id: 'nvidia_llama70b',
+        name: 'NVIDIA 1: Modelo Principal (Configurado no Painel)',
+        baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
+        defaultModel: 'meta/llama-3.2-11b-vision-instruct',
+        envKeyName: 'NVIDIA_API_KEY',
+        multipleKeysEnvName: 'NVIDIA_API_KEYS',
+        envModelName: 'NVIDIA_MODEL_TIER1'
+    },
+    {
+        id: 'nvidia_deepseek_r1',
+        name: 'NVIDIA 2: DeepSeek R1 (Raciocínio & Objeções)',
+        baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
+        defaultModel: 'deepseek-ai/deepseek-r1',
+        envKeyName: 'NVIDIA_API_KEY',
+        multipleKeysEnvName: 'NVIDIA_API_KEYS',
+        envModelName: 'NVIDIA_MODEL_TIER2'
+    },
+    {
+        id: 'nvidia_nemotron',
+        name: 'NVIDIA 3: Nemotron 70B (Otimizado NVIDIA)',
+        baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
+        defaultModel: 'nvidia/llama-3.1-nemotron-70b-instruct',
+        envKeyName: 'NVIDIA_API_KEY',
+        multipleKeysEnvName: 'NVIDIA_API_KEYS',
+        envModelName: 'NVIDIA_MODEL_TIER3'
+    },
+    {
+        id: 'nvidia_llama405b',
+        name: 'NVIDIA 4: Llama 3.1 405B (Super Modelo)',
+        baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
+        defaultModel: 'meta/llama-3.1-405b-instruct',
+        envKeyName: 'NVIDIA_API_KEY',
+        multipleKeysEnvName: 'NVIDIA_API_KEYS',
+        envModelName: 'NVIDIA_MODEL_TIER4'
+    },
+    {
+        id: 'nvidia_llama8b',
+        name: 'NVIDIA 5: Llama 3.1 8B (Backup Ultra-Rápido)',
+        baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
+        defaultModel: 'meta/llama-3.1-8b-instruct',
+        envKeyName: 'NVIDIA_API_KEY',
+        multipleKeysEnvName: 'NVIDIA_API_KEYS',
+        envModelName: 'NVIDIA_MODEL_TIER5'
+    }
+];
+export class AiProviderService {
+    static keyIndices = {};
+    /**
+     * Obtém as chaves disponíveis de um provedor (suporta chave única ou lista separada por vírgula)
+     */
+    static getProviderKeys(provider, customKeys) {
+        const keys = [];
+        if (customKeys) {
+            keys.push(...customKeys.split(/[,;\n]/).map((k) => k.trim()).filter(Boolean));
+        }
+        const fromEnv = process.env[provider.envKeyName] || '';
+        if (fromEnv) {
+            keys.push(...fromEnv.split(/[,;\n]/).map((k) => k.trim()).filter(Boolean));
+        }
+        const fromMultiEnv = provider.multipleKeysEnvName ? process.env[provider.multipleKeysEnvName] || '' : '';
+        if (fromMultiEnv) {
+            keys.push(...fromMultiEnv.split(/[,;\n]/).map((k) => k.trim()).filter(Boolean));
+        }
+        return Array.from(new Set(keys)).filter((k) => k.length > 5);
+    }
+    /**
+     * Executa a chamada em cascata (Cascading Fallback):
+     * 1. NVIDIA NIM (rotaciona entre múltiplas chaves caso receba 429)
+     * 2. Se falhar -> Groq
+     * 3. Se falhar -> OpenRouter
+     * 4. Se falhar -> OpenAI
+     * 5. Se falhar -> DeepSeek
+     * 6. Se todos falharem -> Fallback para regras locais de fechamento
+     */
+    static async generateWithCascade(params) {
+        const { systemPrompt, userMessage, conversationHistory = [], customKeysMap = {}, maxTokens = 1200, modelOverride, temperature = 0.7 } = params;
+        const attemptedProviders = [];
+        // Prepara mensagens no formato OpenAI
+        const messages = [
+            { role: 'system', content: systemPrompt }
+        ];
+        // Adiciona histórico recente (últimas 6 mensagens para manter contexto e economizar tokens)
+        const recentHistory = conversationHistory.slice(-6);
+        for (const msg of recentHistory) {
+            messages.push({
+                role: msg.sender === 'lead' ? 'user' : 'assistant',
+                content: msg.content
+            });
+        }
+        // Garante que a mensagem atual do usuário esteja no final
+        messages.push({ role: 'user', content: userMessage });
+        // Itera pelos provedores em cascata
+        // Se o modelo solicitado for expressamente z-ai ou glm, prioriza o provedor NVIDIA NIM Z.ai GLM 5.3
+        let providersToTry = [...SUPPORTED_PROVIDERS];
+        if (modelOverride && (modelOverride.startsWith('z-ai/') || modelOverride.includes('glm'))) {
+            const glmP = providersToTry.find((p) => p.id === 'nvidia_glm');
+            providersToTry = glmP ? [glmP] : providersToTry;
+        }
+        else if (!modelOverride) {
+            // Para chamadas gerais de vendas X1 sem override, prioriza os modelos NVIDIA de atendimento configurados
+            providersToTry.sort((a, b) => (a.id === 'nvidia_llama70b' ? -1 : 1));
+        }
+        for (const provider of providersToTry) {
+            const keys = this.getProviderKeys(provider, customKeysMap[provider.id]);
+            if (keys.length === 0) {
+                continue; // Provedor não configurado, segue para o próximo
+            }
+            const model = modelOverride ||
+                (provider.id === 'nvidia_llama70b'
+                    ? (db.aiConfig.model || provider.defaultModel)
+                    : ((provider.envModelName && process.env[provider.envModelName]) || provider.defaultModel));
+            // Tenta as chaves do provedor (rotação automática)
+            for (let attempt = 0; attempt < keys.length; attempt++) {
+                // Seleciona a chave atual usando round-robin
+                const currentIndex = (this.keyIndices[provider.id] || 0) % keys.length;
+                const activeKey = keys[currentIndex];
+                this.keyIndices[provider.id] = currentIndex + 1;
+                const startTime = Date.now();
+                try {
+                    const isGlm = provider.id === 'nvidia_glm' || (model && model.includes('glm'));
+                    const effectiveMaxTokens = isGlm ? Math.min(maxTokens || 2048, 2500) : Math.min(maxTokens || 4000, 4096);
+                    console.log(`[AI Cascade] Tentando ${provider.name} (Modelo: ${model}, Chave: ${activeKey.slice(0, 8)}... MaxTokens: ${effectiveMaxTokens})...`);
+                    const res = await axios.post(provider.baseUrl, {
+                        model,
+                        messages,
+                        temperature,
+                        max_tokens: effectiveMaxTokens,
+                        top_p: 0.95
+                    }, {
+                        headers: {
+                            Authorization: `Bearer ${activeKey}`,
+                            'Content-Type': 'application/json'
+                        },
+                        timeout: isGlm ? 180000 : 75000
+                    });
+                    const choice = res.data?.choices?.[0];
+                    const text = (choice?.message?.content || choice?.message?.reasoning_content || choice?.message?.reasoning || '').trim();
+                    const reasoning = (choice?.message?.reasoning_content || choice?.message?.reasoning || '').trim();
+                    if (text) {
+                        const latencyMs = Date.now() - startTime;
+                        console.log(`✅ [AI Cascade] Sucesso via ${provider.name} (${latencyMs}ms)!`);
+                        return {
+                            replyText: text,
+                            providerUsed: provider.name,
+                            modelUsed: model,
+                            latencyMs,
+                            cascadedFrom: attemptedProviders.length > 0 ? attemptedProviders : undefined,
+                            reasoning: reasoning || undefined
+                        };
+                    }
+                }
+                catch (error) {
+                    const status = error.response?.status;
+                    const errorMsg = error.response?.data?.error?.message || error.message;
+                    console.warn(`⚠️ [AI Cascade Fallback] ${provider.name} falhou [Status ${status}]: ${errorMsg}. Acionando próximo na cascata...`);
+                    attemptedProviders.push(`${provider.name} (${status || 'timeout'})`);
+                }
+            }
+        }
+        console.warn('[AI Cascade] Todos os provedores externos de IA esgotados ou sem chave. Usando motor local de segurança.');
+        return null;
+    }
+    /**
+     * Testa a conectividade de todos os provedores para exibir o status no painel
+     */
+    static async testAllProviders(customKeysMap = {}) {
+        const results = [];
+        for (const provider of SUPPORTED_PROVIDERS) {
+            const keys = this.getProviderKeys(provider, customKeysMap[provider.id]);
+            const model = (provider.envModelName && process.env[provider.envModelName]) ||
+                provider.defaultModel;
+            if (keys.length === 0) {
+                results.push({
+                    id: provider.id,
+                    name: provider.name,
+                    model,
+                    status: 'not_configured',
+                    message: `Nenhuma chave configurada em ${provider.envKeyName} no .env ou no painel.`
+                });
+                continue;
+            }
+            const activeKey = keys[0];
+            const startTime = Date.now();
+            try {
+                const res = await axios.post(provider.baseUrl, {
+                    model,
+                    messages: [{ role: 'user', content: 'responda apenas com a palavra OK' }],
+                    max_tokens: 10
+                }, {
+                    headers: {
+                        Authorization: `Bearer ${activeKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 6000
+                });
+                const latencyMs = Date.now() - startTime;
+                results.push({
+                    id: provider.id,
+                    name: provider.name,
+                    model,
+                    status: 'online',
+                    latencyMs,
+                    message: `Conectado com sucesso (${latencyMs}ms). Resposta: ${res.data?.choices?.[0]?.message?.content?.trim() || 'OK'}`
+                });
+            }
+            catch (err) {
+                results.push({
+                    id: provider.id,
+                    name: provider.name,
+                    model,
+                    status: 'error',
+                    message: `Falha na requisição [${err.response?.status || 'Timeout'}]: ${err.response?.data?.error?.message || err.message}`
+                });
+            }
+        }
+        return results;
+    }
+    /**
+     * Puxa dinamicamente a lista de modelos da API da NVIDIA NIM
+     */
+    static async fetchNvidiaModels(customKey) {
+        const key = customKey ||
+            process.env.NVIDIA_API_KEY ||
+            (process.env.NVIDIA_API_KEYS ? process.env.NVIDIA_API_KEYS.split(',')[0].trim() : '');
+        const activeModel = db.aiConfig.model || 'meta/llama-3.3-70b-instruct';
+        if (!key) {
+            return {
+                source: 'catalog',
+                models: POPULAR_NVIDIA_MODELS,
+                activeModel,
+                message: 'Chave da NVIDIA não configurada. Exibindo modelos recomendados do catálogo.'
+            };
+        }
+        try {
+            console.log('[NVIDIA] Puxando lista de modelos dinamicamente de https://integrate.api.nvidia.com/v1/models...');
+            const res = await axios.get('https://integrate.api.nvidia.com/v1/models', {
+                headers: {
+                    Authorization: `Bearer ${key}`
+                },
+                timeout: 7000
+            });
+            const apiData = res.data?.data || [];
+            if (Array.isArray(apiData) && apiData.length > 0) {
+                // Filtra os modelos relevantes para chat / instrução / raciocínio
+                const fetchedModels = apiData
+                    .filter((m) => typeof m.id === 'string' &&
+                    (m.id.includes('instruct') ||
+                        m.id.includes('chat') ||
+                        m.id.includes('r1') ||
+                        m.id.includes('llama') ||
+                        m.id.includes('deepseek') ||
+                        m.id.includes('mistral') ||
+                        m.id.includes('nemotron') ||
+                        m.id.includes('qwen') ||
+                        m.id.includes('gemma')))
+                    .map((m) => {
+                    const known = POPULAR_NVIDIA_MODELS.find((p) => p.id === m.id);
+                    const parts = m.id.split('/');
+                    const creator = parts.length > 1 ? parts[0] : 'NVIDIA';
+                    const name = parts.length > 1 ? parts[1].replace(/-/g, ' ') : m.id;
+                    return {
+                        id: m.id,
+                        name: known ? known.name : name,
+                        creator: known ? known.creator : creator.toUpperCase(),
+                        description: known ? known.description : `Modelo oficial NVIDIA NIM: ${m.id}`,
+                        contextLength: known ? known.contextLength : 128000,
+                        recommendedRole: known ? known.recommendedRole : 'Geral / Conversação',
+                        isDefault: m.id === 'meta/llama-3.3-70b-instruct'
+                    };
+                });
+                // Ordena colocando os recomendados no topo
+                fetchedModels.sort((a, b) => {
+                    const aPopular = POPULAR_NVIDIA_MODELS.findIndex((p) => p.id === a.id);
+                    const bPopular = POPULAR_NVIDIA_MODELS.findIndex((p) => p.id === b.id);
+                    if (aPopular !== -1 && bPopular !== -1)
+                        return aPopular - bPopular;
+                    if (aPopular !== -1)
+                        return -1;
+                    if (bPopular !== -1)
+                        return 1;
+                    return a.name.localeCompare(b.name);
+                });
+                console.log(`✅ [NVIDIA] ${fetchedModels.length} modelos carregados dinamicamente da API!`);
+                return {
+                    source: 'live_api',
+                    models: fetchedModels,
+                    activeModel,
+                    message: `Sincronizado com sucesso direto da API NVIDIA (${fetchedModels.length} modelos disponíveis)!`
+                };
+            }
+        }
+        catch (err) {
+            console.warn(`[NVIDIA] Erro ao buscar modelos da API (${err.message}). Usando catálogo pré-configurado.`);
+        }
+        return {
+            source: 'catalog',
+            models: POPULAR_NVIDIA_MODELS,
+            activeModel,
+            message: 'Exibindo catálogo otimizado para vendas no WhatsApp.'
+        };
+    }
+}

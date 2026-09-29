@@ -1,0 +1,33 @@
+version: '3.8'
+
+# =====================================================================
+# WHATSPIX AI - DOCKER COMPOSE PARA WAHA & PRODUÇÃO (VPS OU LOCAL)
+# =====================================================================
+# Para rodar no seu PC ou na VPS:
+# docker compose up -d
+#
+# Isso subirá o container do WAHA com reinício automático e persistência de sessões.
+
+services:
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: whatspix_waha
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Configuração do WAHA
+      - WHATSAPP_DEFAULT_ENGINE=WEBJS
+      - WAHA_ZIP_LOGS=true
+      - WAHA_LOG_FORMAT=JSON
+      # Webhook apontando para o backend Whatspix
+      # No PC local: http://host.docker.internal:3001/api/webhooks/waha
+      # Na VPS: http://backend:3001/api/webhooks/waha ou http://localhost:3001/api/webhooks/waha
+      - WAHA_WEBHOOKS_URL=http://host.docker.internal:3001/api/webhooks/waha
+      - WAHA_WEBHOOKS_EVENTS=message,message.any,session.status
+    volumes:
+      - waha_sessions:/app/.sessions
+
+volumes:
+  waha_sessions:
+    name: whatspix_waha_sessions
