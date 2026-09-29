@@ -187,11 +187,11 @@ Responda EXCLUSIVAMENTE em JSON no formato abaixo, sem comentários adicionais:
 
       const userMessage = `Crie o funil para a seguinte descrição: "${prompt}". Produto: "${extractedProduct}". Preço: R$ ${mainPriceStr}. Downsell: R$ ${downsellPriceStr}.`;
 
-      console.log(`[AI ARCHITECT] Gerando cópia e estratégia do funil com Z.ai GLM 5.3 (z-ai/glm-5.3)...`);
+      console.log(`[AI ARCHITECT] Gerando cópia e estratégia do funil com IA (${process.env.SYSTEM_ARCHITECT_MODEL || 'meta/llama-3.2-11b-vision-instruct'})...`);
       const aiResponse = await AiProviderService.generateWithCascade({
         systemPrompt,
         userMessage,
-        modelOverride: process.env.SYSTEM_ARCHITECT_MODEL || 'z-ai/glm-5.3',
+        modelOverride: process.env.SYSTEM_ARCHITECT_MODEL || 'meta/llama-3.2-11b-vision-instruct',
         maxTokens: 2000,
         temperature: 0.2
       });
@@ -871,11 +871,11 @@ REGRAS DE ARQUITETURA DE ALTA CONVERSÃO:
     let aiReasoning: string | undefined = undefined;
 
     try {
-      console.log(`[AI MAINTAIN] Solicitando manutenção e reparo do funil com Z.ai GLM 5.3 (z-ai/glm-5.3)...`);
+      console.log(`[AI MAINTAIN] Solicitando manutenção e reparo do funil com IA (${process.env.SYSTEM_ARCHITECT_MODEL || 'meta/llama-3.2-11b-vision-instruct'})...`);
       const aiResponse = await AiProviderService.generateWithCascade({
         systemPrompt,
         userMessage,
-        modelOverride: process.env.SYSTEM_ARCHITECT_MODEL || 'z-ai/glm-5.3',
+        modelOverride: process.env.SYSTEM_ARCHITECT_MODEL || 'meta/llama-3.2-11b-vision-instruct',
         maxTokens: 2000,
         temperature: 0.2
       });

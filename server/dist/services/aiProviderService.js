@@ -69,17 +69,16 @@ export const POPULAR_NVIDIA_MODELS = [
 ];
 export const SUPPORTED_PROVIDERS = [
     {
-        id: 'nvidia_glm',
-        name: 'NVIDIA NIM: Z.ai GLM 5.3 (Arquiteto & Engenheiro de Funis)',
-        baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
+        id: 'openrouter_glm',
+        name: 'OpenRouter: Z.ai GLM 5.3 (Arquiteto & Engenheiro de Funis)',
+        baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
         defaultModel: 'z-ai/glm-5.3',
-        envKeyName: 'NVIDIA_API_KEY',
-        multipleKeysEnvName: 'NVIDIA_API_KEYS',
+        envKeyName: 'OPENROUTER_API_KEY',
         envModelName: 'SYSTEM_ARCHITECT_MODEL'
     },
     {
-        id: 'nvidia_llama70b',
-        name: 'NVIDIA 1: Modelo Principal (Configurado no Painel)',
+        id: 'nvidia_vision',
+        name: 'NVIDIA NIM: Llama 3.2 11B Vision Instruct (Principal)',
         baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
         defaultModel: 'meta/llama-3.2-11b-vision-instruct',
         envKeyName: 'NVIDIA_API_KEY',
@@ -87,8 +86,26 @@ export const SUPPORTED_PROVIDERS = [
         envModelName: 'NVIDIA_MODEL_TIER1'
     },
     {
+        id: 'nvidia_llama70b',
+        name: 'NVIDIA NIM: Llama 3.3 70B Instruct (Vendas X1)',
+        baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
+        defaultModel: 'meta/llama-3.3-70b-instruct',
+        envKeyName: 'NVIDIA_API_KEY',
+        multipleKeysEnvName: 'NVIDIA_API_KEYS',
+        envModelName: 'NVIDIA_MODEL_TIER1'
+    },
+    {
+        id: 'nvidia_llama8b',
+        name: 'NVIDIA NIM: Llama 3.1 8B Instruct (Ultra-Rápido)',
+        baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
+        defaultModel: 'meta/llama-3.1-8b-instruct',
+        envKeyName: 'NVIDIA_API_KEY',
+        multipleKeysEnvName: 'NVIDIA_API_KEYS',
+        envModelName: 'NVIDIA_MODEL_TIER5'
+    },
+    {
         id: 'nvidia_deepseek_r1',
-        name: 'NVIDIA 2: DeepSeek R1 (Raciocínio & Objeções)',
+        name: 'NVIDIA NIM: DeepSeek R1 (Raciocínio & Objeções)',
         baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
         defaultModel: 'deepseek-ai/deepseek-r1',
         envKeyName: 'NVIDIA_API_KEY',
@@ -97,7 +114,7 @@ export const SUPPORTED_PROVIDERS = [
     },
     {
         id: 'nvidia_nemotron',
-        name: 'NVIDIA 3: Nemotron 70B (Otimizado NVIDIA)',
+        name: 'NVIDIA NIM: Nemotron 70B (Otimizado NVIDIA)',
         baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
         defaultModel: 'nvidia/llama-3.1-nemotron-70b-instruct',
         envKeyName: 'NVIDIA_API_KEY',
@@ -106,21 +123,12 @@ export const SUPPORTED_PROVIDERS = [
     },
     {
         id: 'nvidia_llama405b',
-        name: 'NVIDIA 4: Llama 3.1 405B (Super Modelo)',
+        name: 'NVIDIA NIM: Llama 3.1 405B (Super Modelo)',
         baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
         defaultModel: 'meta/llama-3.1-405b-instruct',
         envKeyName: 'NVIDIA_API_KEY',
         multipleKeysEnvName: 'NVIDIA_API_KEYS',
         envModelName: 'NVIDIA_MODEL_TIER4'
-    },
-    {
-        id: 'nvidia_llama8b',
-        name: 'NVIDIA 5: Llama 3.1 8B (Backup Ultra-Rápido)',
-        baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
-        defaultModel: 'meta/llama-3.1-8b-instruct',
-        envKeyName: 'NVIDIA_API_KEY',
-        multipleKeysEnvName: 'NVIDIA_API_KEYS',
-        envModelName: 'NVIDIA_MODEL_TIER5'
     }
 ];
 export class AiProviderService {
@@ -145,12 +153,10 @@ export class AiProviderService {
     }
     /**
      * Executa a chamada em cascata (Cascading Fallback):
-     * 1. NVIDIA NIM (rotaciona entre múltiplas chaves caso receba 429)
-     * 2. Se falhar -> Groq
-     * 3. Se falhar -> OpenRouter
-     * 4. Se falhar -> OpenAI
-     * 5. Se falhar -> DeepSeek
-     * 6. Se todos falharem -> Fallback para regras locais de fechamento
+     * 1. OpenRouter (Z.ai GLM 5.3 para arquitetura de funis)
+     * 2. NVIDIA NIM Llama 3.2 11B Vision / Llama 3.3 70B / 8B
+     * 3. DeepSeek R1 / Nemotron
+     * 4. Se todos falharem -> Fallback para regras locais de fechamento
      */
     static async generateWithCascade(params) {
         const { systemPrompt, userMessage, conversationHistory = [], customKeysMap = {}, maxTokens = 1200, modelOverride, temperature = 0.7 } = params;
@@ -170,25 +176,69 @@ export class AiProviderService {
         // Garante que a mensagem atual do usuário esteja no final
         messages.push({ role: 'user', content: userMessage });
         // Itera pelos provedores em cascata
-        // Se o modelo solicitado for expressamente z-ai ou glm, prioriza o provedor NVIDIA NIM Z.ai GLM 5.3
         let providersToTry = [...SUPPORTED_PROVIDERS];
-        if (modelOverride && (modelOverride.startsWith('z-ai/') || modelOverride.includes('glm'))) {
-            const glmP = providersToTry.find((p) => p.id === 'nvidia_glm');
-            providersToTry = glmP ? [glmP] : providersToTry;
+        const isGlmRequested = !!(modelOverride && (modelOverride.startsWith('z-ai/') || modelOverride.includes('glm')));
+        const isNvidiaModel = !!(modelOverride &&
+            (modelOverride.startsWith('meta/') ||
+                modelOverride.startsWith('nvidia/') ||
+                modelOverride.startsWith('deepseek-ai/') ||
+                modelOverride.startsWith('mistralai/') ||
+                modelOverride.startsWith('qwen/')));
+        if (isGlmRequested) {
+            // Prioriza OpenRouter GLM se disponível, seguido por nvidia_vision e os outros
+            providersToTry.sort((a, b) => {
+                if (a.id === 'openrouter_glm')
+                    return -1;
+                if (b.id === 'openrouter_glm')
+                    return 1;
+                if (a.id === 'nvidia_vision')
+                    return -1;
+                if (b.id === 'nvidia_vision')
+                    return 1;
+                return 0;
+            });
+        }
+        else if (isNvidiaModel) {
+            // Quando um modelo NVIDIA for expressamente solicitado, consulta apenas provedores NVIDIA
+            providersToTry = providersToTry.filter((p) => p.baseUrl.includes('nvidia.com'));
         }
         else if (!modelOverride) {
-            // Para chamadas gerais de vendas X1 sem override, prioriza os modelos NVIDIA de atendimento configurados
-            providersToTry.sort((a, b) => (a.id === 'nvidia_llama70b' ? -1 : 1));
+            // Para chamadas gerais de vendas X1 sem override, prioriza nvidia_vision ou nvidia_llama70b
+            providersToTry.sort((a, b) => (a.id === 'nvidia_vision' ? -1 : 1));
         }
         for (const provider of providersToTry) {
             const keys = this.getProviderKeys(provider, customKeysMap[provider.id]);
             if (keys.length === 0) {
                 continue; // Provedor não configurado, segue para o próximo
             }
-            const model = modelOverride ||
-                (provider.id === 'nvidia_llama70b'
-                    ? (db.aiConfig.model || provider.defaultModel)
-                    : ((provider.envModelName && process.env[provider.envModelName]) || provider.defaultModel));
+            // Determina o modelo correto para este provedor específico:
+            // Se modelOverride for um modelo de outro ecossistema (ex: 'z-ai/glm-5.3' no NVIDIA NIM),
+            // o NVIDIA NIM não suporta z-ai/glm-5.3, então usamos provider.defaultModel (ex: meta/llama-3.2-11b-vision-instruct).
+            const isNvidia = provider.baseUrl.includes('nvidia.com');
+            let model = provider.defaultModel;
+            if (modelOverride) {
+                if (isNvidia) {
+                    // Se for provedor NVIDIA, só usa modelOverride se NÃO for do OpenRouter/GLM
+                    if (!modelOverride.startsWith('z-ai/') && !modelOverride.includes('glm')) {
+                        model = modelOverride;
+                    }
+                    else {
+                        model = provider.defaultModel;
+                    }
+                }
+                else {
+                    // Se for OpenRouter, OpenAI, etc.
+                    model = modelOverride;
+                }
+            }
+            else {
+                if (provider.id === 'nvidia_llama70b' && db.aiConfig.model) {
+                    model = db.aiConfig.model;
+                }
+                else if (provider.envModelName && process.env[provider.envModelName]) {
+                    model = process.env[provider.envModelName];
+                }
+            }
             // Tenta as chaves do provedor (rotação automática)
             for (let attempt = 0; attempt < keys.length; attempt++) {
                 // Seleciona a chave atual usando round-robin
@@ -197,7 +247,7 @@ export class AiProviderService {
                 this.keyIndices[provider.id] = currentIndex + 1;
                 const startTime = Date.now();
                 try {
-                    const isGlm = provider.id === 'nvidia_glm' || (model && model.includes('glm'));
+                    const isGlm = model && model.includes('glm');
                     const effectiveMaxTokens = isGlm ? Math.min(maxTokens || 2048, 2500) : Math.min(maxTokens || 4000, 4096);
                     console.log(`[AI Cascade] Tentando ${provider.name} (Modelo: ${model}, Chave: ${activeKey.slice(0, 8)}... MaxTokens: ${effectiveMaxTokens})...`);
                     const res = await axios.post(provider.baseUrl, {
@@ -211,7 +261,7 @@ export class AiProviderService {
                             Authorization: `Bearer ${activeKey}`,
                             'Content-Type': 'application/json'
                         },
-                        timeout: isGlm ? 180000 : 75000
+                        timeout: 25000 // Máximo 25s por chamada para nunca estourar o timeout de 60s do Nginx
                     });
                     const choice = res.data?.choices?.[0];
                     const text = (choice?.message?.content || choice?.message?.reasoning_content || choice?.message?.reasoning || '').trim();
