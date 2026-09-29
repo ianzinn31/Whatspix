@@ -246,7 +246,7 @@ class InMemoryDB {
     aiConfig = {
         provider: 'nvidia',
         apiKey: '',
-        model: 'meta/llama-3.2-11b-vision-instruct',
+        model: 'deepseek-ai/deepseek-v4.1-flash',
         personaName: 'Leo',
         agentRole: 'Especialista em Vendas X1 & Fechamento',
         tone: 'persuasive',

@@ -2,13 +2,21 @@ import axios from 'axios';
 import { db } from '../store/db.js';
 export const POPULAR_NVIDIA_MODELS = [
     {
+        id: 'deepseek-ai/deepseek-v4.1-flash',
+        name: 'DeepSeek V4.1 Flash',
+        creator: 'DeepSeek / NVIDIA',
+        description: 'Estado da arte em persuasão, velocidade instantânea de resposta, raciocínio apurado para WhatsApp e quebra de objeções.',
+        contextLength: 128000,
+        recommendedRole: 'Conversão & Fechamento Flash (Recomendado)',
+        isDefault: true
+    },
+    {
         id: 'meta/llama-3.2-11b-vision-instruct',
         name: 'Llama 3.2 11B Vision Instruct',
         creator: 'Meta / NVIDIA',
         description: 'Ultra-rápido (latência sub-segundo ~700ms), visão multimodal OCR e excelente português brasileiro.',
         contextLength: 128000,
-        recommendedRole: 'Vendas X1, Fechamento & Multimodal (Ativo)',
-        isDefault: true
+        recommendedRole: 'Vendas X1, Fechamento & Multimodal (Ativo)'
     },
     {
         id: 'meta/llama-3.3-70b-instruct',
@@ -69,6 +77,22 @@ export const POPULAR_NVIDIA_MODELS = [
 ];
 export const SUPPORTED_PROVIDERS = [
     {
+        id: 'nvidia_deepseek',
+        name: 'NVIDIA NIM: DeepSeek V4.1 Flash (Persuasão & Fechamento)',
+        baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
+        defaultModel: 'deepseek-ai/deepseek-v4.1-flash',
+        envKeyName: 'NVIDIA_API_KEY',
+        multipleKeysEnvName: 'NVIDIA_API_KEYS',
+        envModelName: 'NVIDIA_MODEL_TIER1'
+    },
+    {
+        id: 'openrouter_deepseek',
+        name: 'OpenRouter: DeepSeek V4.1 Flash (Ultra-Rápido 550ms)',
+        baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
+        defaultModel: 'deepseek/deepseek-v4.1-flash',
+        envKeyName: 'OPENROUTER_API_KEY'
+    },
+    {
         id: 'openrouter_qwen',
         name: 'OpenRouter: Qwen 2.5 72B (Arquiteto Estrategista)',
         baseUrl: 'https://openrouter.ai/api/v1/chat/completions',
@@ -92,7 +116,7 @@ export const SUPPORTED_PROVIDERS = [
     },
     {
         id: 'nvidia_vision',
-        name: 'NVIDIA NIM: Llama 3.2 11B Vision Instruct (Principal)',
+        name: 'NVIDIA NIM: Llama 3.2 11B Vision Instruct (Multimodal)',
         baseUrl: 'https://integrate.api.nvidia.com/v1/chat/completions',
         defaultModel: 'meta/llama-3.2-11b-vision-instruct',
         envKeyName: 'NVIDIA_API_KEY',
@@ -172,7 +196,23 @@ export class AiProviderService {
         messages.push({ role: 'user', content: userMessage });
         // Itera pelos provedores em cascata
         let providersToTry = [...SUPPORTED_PROVIDERS];
-        if (modelOverride) {
+        const requestedModel = (modelOverride || db.aiConfig.model || process.env.SYSTEM_ARCHITECT_MODEL || '').toLowerCase();
+        const isDeepSeekTarget = requestedModel.includes('deepseek');
+        if (isDeepSeekTarget) {
+            // Prioriza os provedores DeepSeek da NVIDIA NIM e OpenRouter no topo da cascata
+            providersToTry.sort((a, b) => {
+                if (a.id === 'nvidia_deepseek')
+                    return -1;
+                if (b.id === 'nvidia_deepseek')
+                    return 1;
+                if (a.id === 'openrouter_deepseek')
+                    return -1;
+                if (b.id === 'openrouter_deepseek')
+                    return 1;
+                return 0;
+            });
+        }
+        else if (modelOverride) {
             if (modelOverride.startsWith('meta/') || modelOverride.startsWith('nvidia/')) {
                 // Modelo específico da NVIDIA: prioriza provedores NVIDIA
                 providersToTry.sort((a, b) => (a.baseUrl.includes('nvidia.com') ? -1 : 1));
@@ -183,8 +223,16 @@ export class AiProviderService {
             }
         }
         else {
-            // Chamada sem override: prioriza Qwen 2.5 72B / GPT-4o Mini no OpenRouter, depois NVIDIA NIM Llama 3.2
+            // Chamada sem override: prioriza DeepSeek, Qwen 2.5 72B / GPT-4o Mini no OpenRouter, depois NVIDIA NIM Llama 3.2
             providersToTry.sort((a, b) => {
+                if (a.id === 'nvidia_deepseek')
+                    return -1;
+                if (b.id === 'nvidia_deepseek')
+                    return 1;
+                if (a.id === 'openrouter_deepseek')
+                    return -1;
+                if (b.id === 'openrouter_deepseek')
+                    return 1;
                 if (a.id === 'openrouter_qwen')
                     return -1;
                 if (b.id === 'openrouter_qwen')
@@ -205,7 +253,10 @@ export class AiProviderService {
             const isNvidia = provider.baseUrl.includes('nvidia.com');
             const isOpenRouter = provider.baseUrl.includes('openrouter.ai');
             let model = provider.defaultModel;
-            if (modelOverride) {
+            if (provider.id.includes('deepseek')) {
+                model = isNvidia ? 'deepseek-ai/deepseek-v4.1-flash' : 'deepseek/deepseek-v4.1-flash';
+            }
+            else if (modelOverride) {
                 if (isNvidia && (modelOverride.startsWith('meta/') || modelOverride.startsWith('nvidia/'))) {
                     model = modelOverride;
                 }
@@ -243,24 +294,32 @@ export class AiProviderService {
                 const startTime = Date.now();
                 try {
                     const isGlm = model && model.includes('glm');
-                    const effectiveMaxTokens = isGlm ? Math.min(maxTokens || 2048, 2500) : Math.min(maxTokens || 4000, 4096);
+                    const isDeepSeek = model && model.includes('deepseek');
+                    const effectiveMaxTokens = isDeepSeek ? Math.max(maxTokens || 2048, 2048) : (isGlm ? Math.min(maxTokens || 2048, 2500) : Math.min(maxTokens || 4000, 4096));
                     console.log(`[AI Cascade] Tentando ${provider.name} (Modelo: ${model}, Chave: ${activeKey.slice(0, 8)}... MaxTokens: ${effectiveMaxTokens})...`);
-                    const res = await axios.post(provider.baseUrl, {
+                    const callTimeout = isNvidia && model.includes('deepseek') ? 10000 : 25000;
+                    const payload = {
                         model,
                         messages,
                         temperature,
                         max_tokens: effectiveMaxTokens,
                         top_p: 0.95
-                    }, {
+                    };
+                    if (isOpenRouter) {
+                        payload.include_reasoning = false;
+                    }
+                    const res = await axios.post(provider.baseUrl, payload, {
                         headers: {
                             Authorization: `Bearer ${activeKey}`,
                             'Content-Type': 'application/json'
                         },
-                        timeout: 25000 // Máximo 25s por chamada para nunca estourar o timeout de 60s do Nginx
+                        timeout: callTimeout
                     });
                     const choice = res.data?.choices?.[0];
-                    const text = (choice?.message?.content || choice?.message?.reasoning_content || choice?.message?.reasoning || '').trim();
-                    const reasoning = (choice?.message?.reasoning_content || choice?.message?.reasoning || '').trim();
+                    const rawContent = choice?.message?.content ? String(choice.message.content).trim() : '';
+                    const rawReasoning = (choice?.message?.reasoning_content || choice?.message?.reasoning || '').trim();
+                    const text = rawContent || rawReasoning;
+                    const reasoning = rawReasoning;
                     if (text) {
                         const latencyMs = Date.now() - startTime;
                         console.log(`✅ [AI Cascade] Sucesso via ${provider.name} (${latencyMs}ms)!`);
@@ -279,6 +338,9 @@ export class AiProviderService {
                     const errorMsg = error.response?.data?.error?.message || error.message;
                     console.warn(`⚠️ [AI Cascade Fallback] ${provider.name} falhou [Status ${status}]: ${errorMsg}. Acionando próximo na cascata...`);
                     attemptedProviders.push(`${provider.name} (${status || 'timeout'})`);
+                    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+                        break; // Timeout de infraestrutura: avança imediatamente para o próximo provedor na cascata
+                    }
                 }
             }
         }
