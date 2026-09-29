@@ -33,13 +33,18 @@ export const api = {
     return res.json();
   },
 
-  async getInstanceStatus(id: string): Promise<{ status: string; instance: WhatsAppInstance }> {
+  async getInstanceStatus(id: string): Promise<{ status: string; instance: WhatsAppInstance; qrCode?: string }> {
     const res = await fetch(`${API_BASE}/instances/${id}/status`);
     return res.json();
   },
 
   async logoutInstance(id: string): Promise<{ success: boolean; instance: WhatsAppInstance }> {
     const res = await fetch(`${API_BASE}/instances/${id}/logout`, { method: 'POST' });
+    return res.json();
+  },
+
+  async restartInstance(id: string): Promise<{ instance: WhatsAppInstance; result: any }> {
+    const res = await fetch(`${API_BASE}/instances/${id}/restart`, { method: 'POST' });
     return res.json();
   },
 

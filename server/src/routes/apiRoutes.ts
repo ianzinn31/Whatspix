@@ -88,8 +88,27 @@ router.get('/instances/:id/status', async (req, res) => {
     inst.qrCode = undefined;
   } else if (statusObj.status === 'disconnected') {
     inst.status = 'disconnected';
+  } else if (statusObj.status === 'scan_qr') {
+    inst.status = 'connecting';
+    const freshQr = await WahaService.getCurrentQr(inst);
+    if (freshQr) {
+      inst.qrCode = freshQr;
+    }
   }
-  res.json({ instance: inst, status: inst.status });
+  res.json({ instance: inst, status: inst.status, qrCode: inst.qrCode });
+});
+
+router.post('/instances/:id/restart', async (req, res) => {
+  const inst = db.instances.find((i) => i.id === req.params.id);
+  if (!inst) return res.status(404).json({ error: 'Instância não encontrada' });
+
+  // Reinicia a sessão no WAHA de forma limpa para gerar novo QR fresco
+  await WahaService.logoutSession(inst);
+  await new Promise((r) => setTimeout(r, 1000));
+  const result = await WahaService.startSession(inst);
+  inst.status = result.status === 'connected' ? 'connected' : 'connecting';
+  inst.qrCode = result.qrCode;
+  res.json({ instance: inst, result });
 });
 
 router.post('/instances/:id/logout', async (req, res) => {

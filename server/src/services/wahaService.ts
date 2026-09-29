@@ -201,6 +201,60 @@ export class WahaService {
   }
 
   /**
+   * Obtém o QR code ativo e atualizado da sessão
+   */
+  static async getCurrentQr(instance: WhatsAppInstance): Promise<string | undefined> {
+    const serverUrl = instance.serverUrl || process.env.WAHA_API_URL || 'http://localhost:3000';
+    const headers = this.getHeaders(instance);
+
+    try {
+      // 1. Tenta formato RAW
+      try {
+        const rawRes = await axios.get(`${serverUrl}/api/${instance.id}/auth/qr?format=raw`, { headers, timeout: 2000 });
+        const rawString = typeof rawRes.data === 'string' ? rawRes.data : rawRes.data?.raw;
+        if (rawString && rawString.length > 10) {
+          return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(rawString)}`;
+        }
+      } catch {}
+
+      // 2. Tenta imagem /auth/qr
+      try {
+        const qrRes = await axios.get(`${serverUrl}/api/${instance.id}/auth/qr`, {
+          headers: { ...headers, Accept: 'image/png, application/json' },
+          responseType: 'arraybuffer',
+          timeout: 2500
+        });
+        if (qrRes.data && qrRes.data.byteLength > 100) {
+          const contentType = String(qrRes.headers['content-type'] || 'image/png');
+          const buf = Buffer.from(qrRes.data);
+          if (contentType.includes('json')) {
+            const parsed = JSON.parse(buf.toString('utf-8'));
+            if (parsed.image) return parsed.image;
+            if (parsed.raw) return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(parsed.raw)}`;
+          }
+          return `data:${contentType};base64,${buf.toString('base64')}`;
+        }
+      } catch {}
+
+      // 3. Tenta screenshot
+      try {
+        const screenRes = await axios.get(`${serverUrl}/api/screenshot?session=${instance.id}`, {
+          headers,
+          responseType: 'arraybuffer',
+          timeout: 2500
+        });
+        if (screenRes.data && screenRes.data.byteLength > 500) {
+          const buf = Buffer.from(screenRes.data);
+          return `data:image/png;base64,${buf.toString('base64')}`;
+        }
+      } catch {}
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  }
+
+  /**
    * Faz logout da sessão no WAHA para permitir reconexão com novo número
    */
   static async logoutSession(instance: WhatsAppInstance): Promise<boolean> {

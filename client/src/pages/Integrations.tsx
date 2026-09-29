@@ -194,6 +194,8 @@ export const Integrations: React.FC = () => {
             setActiveQrModal(null);
             setQrConnectedSuccess(false);
           }, 2500);
+        } else if (res.qrCode && res.qrCode !== activeQrModal.qrCode) {
+          setActiveQrModal((prev) => (prev ? { ...prev, qrCode: res.qrCode } : null));
         }
       } catch (err) {
         // silencioso
@@ -227,7 +229,7 @@ export const Integrations: React.FC = () => {
     if (!activeQrModal) return;
     setIsRefreshingQr(true);
     try {
-      const res = await api.startInstanceSession(activeQrModal.id);
+      const res = await api.restartInstance(activeQrModal.id);
       setActiveQrModal(res.instance);
       if (res.instance?.status === 'connected') {
         setQrConnectedSuccess(true);
@@ -952,7 +954,16 @@ export const Integrations: React.FC = () => {
                   <span>Aguardando leitura do aparelho...</span>
                 </div>
 
-                <div className="flex gap-2 pt-2">
+                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 text-left space-y-1">
+                  <p className="font-semibold flex items-center gap-1">
+                    <span>⏱️</span> Dica Anti-Erro:
+                  </p>
+                  <p className="text-[10px] text-slate-300 leading-tight">
+                    O WhatsApp expira o código em <strong>20 segundos</strong>. Fique com a câmera do celular pronta e aponte logo após clicar em <strong>Atualizar QR</strong>.
+                  </p>
+                </div>
+
+                <div className="flex gap-2 pt-1">
                   <button
                     onClick={handleRefreshQr}
                     disabled={isRefreshingQr}
