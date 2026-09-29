@@ -33,6 +33,16 @@ export const api = {
     return res.json();
   },
 
+  async getInstanceStatus(id: string): Promise<{ status: string; instance: WhatsAppInstance }> {
+    const res = await fetch(`${API_BASE}/instances/${id}/status`);
+    return res.json();
+  },
+
+  async logoutInstance(id: string): Promise<{ success: boolean; instance: WhatsAppInstance }> {
+    const res = await fetch(`${API_BASE}/instances/${id}/logout`, { method: 'POST' });
+    return res.json();
+  },
+
   async updateInstance(id: string, data: Partial<WhatsAppInstance>): Promise<WhatsAppInstance> {
     const res = await fetch(`${API_BASE}/instances/${id}`, {
       method: 'PUT',

@@ -25,7 +25,8 @@ import {
   CheckSquare,
   Key,
   Layers,
-  GitFork
+  GitFork,
+  Power
 } from 'lucide-react';
 import { WhatsAppInstance, SalesFunnel } from '../types';
 import { api } from '../services/api';
@@ -36,11 +37,13 @@ export const Integrations: React.FC = () => {
   const [funnels, setFunnels] = useState<SalesFunnel[]>([]);
   const [assignedSuccessId, setAssignedSuccessId] = useState<string | null>(null);
   const [activeQrModal, setActiveQrModal] = useState<WhatsAppInstance | null>(null);
+  const [isRefreshingQr, setIsRefreshingQr] = useState(false);
+  const [qrConnectedSuccess, setQrConnectedSuccess] = useState(false);
   const [copiedWebhook, setCopiedWebhook] = useState<string | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [isAddingInstance, setIsAddingInstance] = useState(false);
   const [newInstanceName, setNewInstanceName] = useState('WhatsApp Vendas');
-  const [newInstancePhone, setNewInstancePhone] = useState('+55 11 99999-9999');
+  const [newInstancePhone, setNewInstancePhone] = useState('+55 88 99695-4721');
   const [newInstanceUrl, setNewInstanceUrl] = useState('http://localhost:3000');
 
   // Supabase settings
@@ -174,16 +177,79 @@ export const Integrations: React.FC = () => {
     }
   };
 
+  // Polling automático enquanto o modal do QR Code estiver aberto
+  useEffect(() => {
+    if (!activeQrModal) {
+      setQrConnectedSuccess(false);
+      return;
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await api.getInstanceStatus(activeQrModal.id);
+        if (res.status === 'connected') {
+          setQrConnectedSuccess(true);
+          await loadInstances();
+          setTimeout(() => {
+            setActiveQrModal(null);
+            setQrConnectedSuccess(false);
+          }, 2500);
+        }
+      } catch (err) {
+        // silencioso
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [activeQrModal]);
+
   const handleStartSession = async (instance: WhatsAppInstance) => {
     setConnectingId(instance.id);
     try {
       const res = await api.startInstanceSession(instance.id);
       setActiveQrModal(res.instance);
+      if (res.instance?.status === 'connected') {
+        setQrConnectedSuccess(true);
+        setTimeout(() => {
+          setActiveQrModal(null);
+          setQrConnectedSuccess(false);
+        }, 2500);
+      }
       loadInstances();
     } catch (err) {
       console.error('Erro ao iniciar sessão:', err);
     } finally {
       setConnectingId(null);
+    }
+  };
+
+  const handleRefreshQr = async () => {
+    if (!activeQrModal) return;
+    setIsRefreshingQr(true);
+    try {
+      const res = await api.startInstanceSession(activeQrModal.id);
+      setActiveQrModal(res.instance);
+      if (res.instance?.status === 'connected') {
+        setQrConnectedSuccess(true);
+        await loadInstances();
+        setTimeout(() => {
+          setActiveQrModal(null);
+          setQrConnectedSuccess(false);
+        }, 2500);
+      }
+    } catch (err) {
+      console.error('Erro ao atualizar QR Code:', err);
+    } finally {
+      setIsRefreshingQr(false);
+    }
+  };
+
+  const handleDisconnect = async (id: string) => {
+    try {
+      await api.logoutInstance(id);
+      await loadInstances();
+    } catch (err) {
+      console.error('Erro ao desconectar instância:', err);
     }
   };
 
@@ -614,14 +680,25 @@ export const Integrations: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleStartSession(inst)}
-                      disabled={connectingId === inst.id}
-                      className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center gap-1.5"
-                    >
-                      <QrCode className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>{connectingId === inst.id ? 'Gerando QR...' : 'Ver QR Code'}</span>
-                    </button>
+                    {inst.status === 'connected' ? (
+                      <button
+                        onClick={() => handleDisconnect(inst.id)}
+                        className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-colors flex items-center gap-1.5"
+                        title="Desconectar do WhatsApp"
+                      >
+                        <Power className="w-3.5 h-3.5" />
+                        <span>Desconectar</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleStartSession(inst)}
+                        disabled={connectingId === inst.id}
+                        className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950/50 transition-colors flex items-center gap-1.5"
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                        <span>{connectingId === inst.id ? 'Gerando QR...' : 'Conectar / QR Code'}</span>
+                      </button>
+                    )}
                     <button
                       onClick={() => handleDeleteInstance(inst.id)}
                       className="p-1.5 rounded-xl text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
@@ -832,34 +909,67 @@ export const Integrations: React.FC = () => {
 
       {/* QR Code Connection Modal */}
       {activeQrModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-[#0f172a] border border-slate-800 w-full max-w-sm rounded-2xl p-6 text-center space-y-4 shadow-2xl">
-            <h3 className="text-base font-bold text-white">Escanear QR Code no WhatsApp</h3>
-            <p className="text-xs text-slate-400">
-              Abra o WhatsApp no celular &gt; Aparelhos Conectados &gt; Conectar um Aparelho.
-            </p>
-
-            <div className="p-4 bg-white rounded-2xl inline-block shadow-inner">
-              {activeQrModal.qrCode ? (
-                <img src={activeQrModal.qrCode} alt="WhatsApp QR Code" className="w-48 h-48 mx-auto" />
-              ) : (
-                <div className="w-48 h-48 flex items-center justify-center text-slate-800 text-xs">
-                  Carregando QR...
+            {qrConnectedSuccess ? (
+              <div className="py-6 space-y-3">
+                <div className="w-14 h-14 mx-auto rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-2xl border border-emerald-500/40 animate-bounce">
+                  ✓
                 </div>
-              )}
-            </div>
+                <h3 className="text-base font-bold text-white">WhatsApp Conectado com Sucesso!</h3>
+                <p className="text-xs text-slate-300">
+                  Sua sessão do WhatsApp está ativa e o agente de IA já pode responder leads.
+                </p>
+              </div>
+            ) : (
+              <>
+                <h3 className="text-base font-bold text-white">Escanear QR Code no WhatsApp</h3>
+                <p className="text-xs text-slate-400">
+                  Abra o WhatsApp no celular &gt; Aparelhos Conectados &gt; Conectar um Aparelho.
+                </p>
 
-            <div className="text-xs text-emerald-400 font-semibold flex items-center justify-center gap-1.5 animate-pulse">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span>Aguardando leitura do aparelho...</span>
-            </div>
+                <div className="p-4 bg-white rounded-2xl inline-block shadow-inner min-w-[220px] min-h-[220px]">
+                  {activeQrModal.qrCode ? (
+                    <img
+                      src={activeQrModal.qrCode}
+                      alt="WhatsApp QR Code"
+                      className="w-52 h-52 mx-auto object-contain"
+                    />
+                  ) : (
+                    <div className="w-52 h-52 flex flex-col items-center justify-center text-slate-800 text-xs gap-3">
+                      <RefreshCw className="w-6 h-6 text-emerald-600 animate-spin" />
+                      <span className="text-center font-medium">
+                        Gerando QR Code Oficial do WhatsApp...
+                        <br />
+                        <span className="text-[10px] text-slate-500">aguarde alguns instantes</span>
+                      </span>
+                    </div>
+                  )}
+                </div>
 
-            <button
-              onClick={() => setActiveQrModal(null)}
-              className="w-full py-2 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-            >
-              Fechar
-            </button>
+                <div className="text-xs text-emerald-400 font-semibold flex items-center justify-center gap-1.5 animate-pulse">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  <span>Aguardando leitura do aparelho...</span>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={handleRefreshQr}
+                    disabled={isRefreshingQr}
+                    className="flex-1 py-2 text-xs font-semibold rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isRefreshingQr ? 'animate-spin' : ''}`} />
+                    <span>{isRefreshingQr ? 'Atualizando...' : 'Atualizar QR'}</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveQrModal(null)}
+                    className="flex-1 py-2 text-xs font-semibold rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 transition-colors"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

@@ -68,9 +68,38 @@ router.post('/instances/:id/start', async (req, res) => {
   if (!inst) return res.status(404).json({ error: 'Instância não encontrada' });
 
   const result = await WahaService.startSession(inst);
-  inst.status = 'connected';
-  inst.qrCode = result.qrCode;
+  if (result.status === 'connected') {
+    inst.status = 'connected';
+    inst.qrCode = undefined;
+  } else {
+    inst.status = 'connecting';
+    inst.qrCode = result.qrCode;
+  }
   res.json({ instance: inst, result });
+});
+
+router.get('/instances/:id/status', async (req, res) => {
+  const inst = db.instances.find((i) => i.id === req.params.id);
+  if (!inst) return res.status(404).json({ error: 'Instância não encontrada' });
+
+  const statusObj = await WahaService.getSessionStatus(inst);
+  if (statusObj.status === 'connected') {
+    inst.status = 'connected';
+    inst.qrCode = undefined;
+  } else if (statusObj.status === 'disconnected') {
+    inst.status = 'disconnected';
+  }
+  res.json({ instance: inst, status: inst.status });
+});
+
+router.post('/instances/:id/logout', async (req, res) => {
+  const inst = db.instances.find((i) => i.id === req.params.id);
+  if (!inst) return res.status(404).json({ error: 'Instância não encontrada' });
+
+  await WahaService.logoutSession(inst);
+  inst.status = 'disconnected';
+  inst.qrCode = undefined;
+  res.json({ success: true, instance: inst });
 });
 
 router.put('/instances/:id', (req, res) => {
@@ -478,6 +507,23 @@ router.post('/webhooks/waha', async (req, res) => {
   try {
     const { event, session, payload } = req.body;
     console.log(`[WEBHOOK WAHA] Event: ${event} | Session: ${session}`);
+
+    // Trata atualização de status da sessão no WAHA (ex: WORKING quando o usuário lê o QR code)
+    if (event === 'session.status') {
+      const status = payload?.status;
+      console.log(`[WAHA WEBHOOK] Status da sessão atualizado: ${session} -> ${status}`);
+      const inst = db.instances.find((i) => i.id === session) || db.instances[0];
+      if (inst) {
+        if (status === 'WORKING') {
+          inst.status = 'connected';
+          inst.qrCode = undefined;
+          console.log(`[WAHA WEBHOOK] 🎉 Instância ${inst.name} conectada com sucesso ao WhatsApp!`);
+        } else if (status === 'STOPPED' || status === 'FAILED') {
+          inst.status = 'disconnected';
+        }
+      }
+      return res.json({ success: true, session, status });
+    }
 
     // Ignora mensagens enviadas por nós mesmos para não entrar em loop
     if (payload?.fromMe) {

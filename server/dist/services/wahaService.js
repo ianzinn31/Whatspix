@@ -2,27 +2,199 @@ import axios from 'axios';
 import { AntiBanEngine } from './antiBanEngine.js';
 export class WahaService {
     /**
-     * Inicia sessão no WAHA ou gera QR code de conexão
+     * Helper para obter headers de autenticação com a chave de API do WAHA
+     */
+    static getHeaders(instance) {
+        const apiKey = instance?.apiKey || process.env.WAHA_API_KEY;
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+        if (apiKey) {
+            headers['X-Api-Key'] = apiKey;
+        }
+        return headers;
+    }
+    /**
+     * Inicia sessão no WAHA e busca o QR code REAL gerado pelo Chromium do WAHA
      */
     static async startSession(instance) {
+        const serverUrl = instance.serverUrl || process.env.WAHA_API_URL || 'http://localhost:3000';
+        const headers = this.getHeaders(instance);
         try {
-            if (instance.serverUrl && instance.serverUrl.startsWith('http')) {
-                const res = await axios.post(`${instance.serverUrl}/api/sessions/start`, { name: instance.id }, {
-                    headers: instance.apiKey ? { 'X-Api-Key': instance.apiKey } : {},
-                    timeout: 4000
-                });
-                return { status: res.data?.status || 'connecting' };
+            if (serverUrl && serverUrl.startsWith('http')) {
+                // 1. Descobrir se já existe uma sessão cadastrada no WAHA
+                let sessionName = 'default';
+                try {
+                    const sessionsRes = await axios.get(`${serverUrl}/api/sessions?all=true`, { headers, timeout: 5000 });
+                    if (Array.isArray(sessionsRes.data) && sessionsRes.data.length > 0) {
+                        // No WAHA Core só é permitida 1 sessão. Usamos o nome da sessão existente
+                        sessionName = sessionsRes.data[0].name;
+                        instance.id = sessionName;
+                        console.log(`[WAHA] Usando sessão detectada: "${sessionName}" (Status: ${sessionsRes.data[0].status})`);
+                        // Se já estiver conectada, retorna imediatamente!
+                        if (sessionsRes.data[0].status === 'WORKING') {
+                            return { status: 'connected' };
+                        }
+                    }
+                    else {
+                        // Se nenhuma sessão existir no WAHA, cria a sessão padrão com webhooks
+                        try {
+                            await axios.post(`${serverUrl}/api/sessions`, {
+                                name: 'default',
+                                config: {
+                                    webhooks: [
+                                        {
+                                            url: process.env.WAHA_WEBHOOK_URL || 'http://172.18.0.1:3001/api/webhooks/waha',
+                                            events: ['message', 'message.any', 'session.status']
+                                        }
+                                    ]
+                                }
+                            }, { headers, timeout: 8000 });
+                            sessionName = 'default';
+                            instance.id = 'default';
+                        }
+                        catch (createErr) {
+                            console.warn(`[WAHA] Aviso ao criar sessão default: ${createErr.message}`);
+                        }
+                    }
+                }
+                catch (e) {
+                    console.warn(`[WAHA] Aviso ao listar sessões: ${e.message}`);
+                }
+                // 2. Garante que a sessão está iniciada no WAHA
+                try {
+                    await axios.post(`${serverUrl}/api/sessions/start`, { name: sessionName }, { headers, timeout: 8000 });
+                }
+                catch (startErr) {
+                    // Se já estiver rodando, não tem problema
+                }
+                // 3. Polling aguardando o Chromium carregar e gerar o QR Code (até 15 segundos)
+                for (let attempt = 1; attempt <= 8; attempt++) {
+                    await new Promise((r) => setTimeout(r, 1800));
+                    try {
+                        // Verifica status da sessão
+                        const statusRes = await axios.get(`${serverUrl}/api/sessions/${sessionName}`, { headers, timeout: 4000 });
+                        const currentStatus = statusRes.data?.status;
+                        console.log(`[WAHA] Tentativa ${attempt}/8 - Status da sessão ${sessionName}: ${currentStatus}`);
+                        if (currentStatus === 'WORKING') {
+                            return { status: 'connected' };
+                        }
+                        // Tenta obter o QR code em formato RAW primeiro (para gerar via qrserver com alta fidelidade)
+                        try {
+                            const rawRes = await axios.get(`${serverUrl}/api/${sessionName}/auth/qr?format=raw`, {
+                                headers,
+                                timeout: 5000
+                            });
+                            if (rawRes.data && (rawRes.data.raw || typeof rawRes.data === 'string')) {
+                                const rawString = typeof rawRes.data === 'string' ? rawRes.data : rawRes.data.raw;
+                                if (rawString && rawString.length > 10) {
+                                    return {
+                                        status: 'scan_qr',
+                                        qrCode: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(rawString)}`
+                                    };
+                                }
+                            }
+                        }
+                        catch { }
+                        // Tenta obter imagem direta de /auth/qr
+                        try {
+                            const qrRes = await axios.get(`${serverUrl}/api/${sessionName}/auth/qr`, {
+                                headers: { ...headers, Accept: 'image/png, application/json' },
+                                responseType: 'arraybuffer',
+                                timeout: 6000
+                            });
+                            if (qrRes.data && qrRes.data.byteLength > 100) {
+                                const contentType = String(qrRes.headers['content-type'] || 'image/png');
+                                const buf = Buffer.from(qrRes.data);
+                                if (contentType.includes('json')) {
+                                    const parsed = JSON.parse(buf.toString('utf-8'));
+                                    if (parsed.image)
+                                        return { status: 'scan_qr', qrCode: parsed.image };
+                                    if (parsed.raw) {
+                                        return {
+                                            status: 'scan_qr',
+                                            qrCode: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(parsed.raw)}`
+                                        };
+                                    }
+                                }
+                                return {
+                                    status: 'scan_qr',
+                                    qrCode: `data:${contentType};base64,${buf.toString('base64')}`
+                                };
+                            }
+                        }
+                        catch { }
+                        // Tenta obter screenshot do WhatsApp Web
+                        try {
+                            const screenRes = await axios.get(`${serverUrl}/api/screenshot?session=${sessionName}`, {
+                                headers,
+                                responseType: 'arraybuffer',
+                                timeout: 6000
+                            });
+                            if (screenRes.data && screenRes.data.byteLength > 500) {
+                                const buf = Buffer.from(screenRes.data);
+                                return {
+                                    status: 'scan_qr',
+                                    qrCode: `data:image/png;base64,${buf.toString('base64')}`
+                                };
+                            }
+                        }
+                        catch { }
+                    }
+                    catch (pollErr) {
+                        console.warn(`[WAHA] Tentativa ${attempt} falhou: ${pollErr.message}`);
+                    }
+                }
             }
         }
         catch (err) {
-            console.warn(`[WAHA] Fallback to simulated QR for ${instance.id} (${err.message})`);
+            console.error(`[WAHA] Erro geral ao obter QR code de ${instance.id} (${err.message})`);
         }
-        // Retorna QR code simulado em SVG / Base64 pronto para leitura
-        const mockQrSvg = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 220 220"><rect width="220" height="220" fill="%23ffffff"/><text x="110" y="115" font-family="sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="%230f172a">QR CODE CONEXAO WAHA</text><text x="110" y="135" font-family="sans-serif" font-size="9" text-anchor="middle" fill="%2364748b">${instance.phone}</text></svg>`;
         return {
             status: 'connecting',
-            qrCode: mockQrSvg
+            qrCode: undefined
         };
+    }
+    /**
+     * Obtém o status em tempo real da sessão no WAHA
+     */
+    static async getSessionStatus(instance) {
+        const serverUrl = instance.serverUrl || process.env.WAHA_API_URL || 'http://localhost:3000';
+        const headers = this.getHeaders(instance);
+        try {
+            const res = await axios.get(`${serverUrl}/api/sessions/${instance.id}`, { headers, timeout: 4000 });
+            const wahaStatus = res.data?.status;
+            if (wahaStatus === 'WORKING')
+                return { status: 'connected' };
+            if (wahaStatus === 'SCAN_QR_CODE')
+                return { status: 'scan_qr' };
+            if (wahaStatus === 'STARTING')
+                return { status: 'connecting' };
+            return { status: 'disconnected' };
+        }
+        catch {
+            return { status: 'disconnected' };
+        }
+    }
+    /**
+     * Faz logout da sessão no WAHA para permitir reconexão com novo número
+     */
+    static async logoutSession(instance) {
+        const serverUrl = instance.serverUrl || process.env.WAHA_API_URL || 'http://localhost:3000';
+        const headers = this.getHeaders(instance);
+        try {
+            await axios.post(`${serverUrl}/api/sessions/logout`, { name: instance.id }, { headers, timeout: 8000 });
+            return true;
+        }
+        catch {
+            try {
+                await axios.post(`${serverUrl}/api/sessions/stop`, { name: instance.id }, { headers, timeout: 8000 });
+                return true;
+            }
+            catch {
+                return false;
+            }
+        }
     }
     /**
      * Garante que o Chat ID esteja no padrão esperado pelo WhatsApp / WAHA (ex: 5511999999999@c.us)
@@ -39,17 +211,16 @@ export class WahaService {
      * Envia presença de digitação no WhatsApp (humanizada com tempo calculado)
      */
     static async sendPresence(instance, chatId, state) {
+        const serverUrl = instance.serverUrl || process.env.WAHA_API_URL || 'http://localhost:3000';
+        const headers = this.getHeaders(instance);
         try {
             const cleanChatId = this.formatChatId(chatId);
-            if (instance.serverUrl) {
-                await axios.post(`${instance.serverUrl}/api/presence`, {
+            if (serverUrl) {
+                await axios.post(`${serverUrl}/api/presence`, {
                     session: instance.id,
                     chatId: cleanChatId,
                     presence: state
-                }, {
-                    headers: instance.apiKey ? { 'X-Api-Key': instance.apiKey } : {},
-                    timeout: 3000
-                });
+                }, { headers, timeout: 3000 });
             }
         }
         catch {
@@ -60,6 +231,8 @@ export class WahaService {
      * Envia mensagem de texto aplicando Spintax e delay humanizado anti-ban
      */
     static async sendTextMessage(instance, chatId, rawText, onTypingStatus) {
+        const serverUrl = instance.serverUrl || process.env.WAHA_API_URL || 'http://localhost:3000';
+        const headers = this.getHeaders(instance);
         const cleanChatId = this.formatChatId(chatId);
         // 1. Processa Spintax
         const processedText = instance.antiBanConfig.spintaxEnabled
@@ -79,19 +252,16 @@ export class WahaService {
             onTypingStatus('enviado');
         // 5. Envia texto para o WAHA real se disponível
         try {
-            if (instance.serverUrl) {
-                await axios.post(`${instance.serverUrl}/api/sendText`, {
+            if (serverUrl) {
+                await axios.post(`${serverUrl}/api/sendText`, {
                     session: instance.id,
                     chatId: cleanChatId,
                     text: processedText
-                }, {
-                    headers: instance.apiKey ? { 'X-Api-Key': instance.apiKey } : {},
-                    timeout: 5000
-                });
+                }, { headers, timeout: 6000 });
             }
         }
         catch (err) {
-            console.warn(`[WAHA] SendText simulated: ${err.message}`);
+            console.warn(`[WAHA] SendText error: ${err.message}`);
         }
         return {
             success: true,
@@ -103,6 +273,8 @@ export class WahaService {
      * Envia áudio com simulação de "gravando áudio..."
      */
     static async sendVoiceNote(instance, chatId, audioUrl, durationSec = 8, onRecordingStatus) {
+        const serverUrl = instance.serverUrl || process.env.WAHA_API_URL || 'http://localhost:3000';
+        const headers = this.getHeaders(instance);
         const cleanChatId = this.formatChatId(chatId);
         const recordingDelay = AntiBanEngine.calculateAudioRecordingDelay(durationSec);
         if (onRecordingStatus)
@@ -114,19 +286,16 @@ export class WahaService {
         if (onRecordingStatus)
             onRecordingStatus('áudio enviado');
         try {
-            if (instance.serverUrl) {
-                await axios.post(`${instance.serverUrl}/api/sendVoice`, {
+            if (serverUrl) {
+                await axios.post(`${serverUrl}/api/sendVoice`, {
                     session: instance.id,
                     chatId: cleanChatId,
                     file: { url: audioUrl }
-                }, {
-                    headers: instance.apiKey ? { 'X-Api-Key': instance.apiKey } : {},
-                    timeout: 8000
-                });
+                }, { headers, timeout: 8000 });
             }
         }
-        catch {
-            // Ignora para simulação
+        catch (err) {
+            console.warn(`[WAHA] SendVoice error: ${err.message}`);
         }
         return { success: true };
     }
@@ -134,10 +303,12 @@ export class WahaService {
      * Envia arquivo ou documento (PDF, imagem, etc.) para o WhatsApp via WAHA
      */
     static async sendFile(instance, chatId, fileUrl, filename, caption) {
+        const serverUrl = instance.serverUrl || process.env.WAHA_API_URL || 'http://localhost:3000';
+        const headers = this.getHeaders(instance);
         const cleanChatId = this.formatChatId(chatId);
         try {
-            if (instance.serverUrl) {
-                await axios.post(`${instance.serverUrl}/api/sendFile`, {
+            if (serverUrl) {
+                await axios.post(`${serverUrl}/api/sendFile`, {
                     session: instance.id,
                     chatId: cleanChatId,
                     file: {
@@ -145,14 +316,11 @@ export class WahaService {
                         filename: filename || 'documento.pdf'
                     },
                     caption: caption || ''
-                }, {
-                    headers: instance.apiKey ? { 'X-Api-Key': instance.apiKey } : {},
-                    timeout: 15000
-                });
+                }, { headers, timeout: 15000 });
             }
         }
         catch (err) {
-            console.warn(`[WAHA] SendFile simulated: ${err.message}`);
+            console.warn(`[WAHA] SendFile error: ${err.message}`);
         }
         return { success: true };
     }
@@ -160,22 +328,21 @@ export class WahaService {
      * Dispara uma chamada de voz WhatsApp (toque no celular do lead para despertar)
      */
     static async makeWhatsAppCall(instance, chatId, durationSec = 15) {
+        const serverUrl = instance.serverUrl || process.env.WAHA_API_URL || 'http://localhost:3000';
+        const headers = this.getHeaders(instance);
         const cleanChatId = this.formatChatId(chatId);
         console.log(`[WAHA] 📞 Disparando chamada de voz WhatsApp para ${cleanChatId} (Toque: ${durationSec}s)...`);
         try {
-            if (instance.serverUrl) {
-                await axios.post(`${instance.serverUrl}/api/call`, {
+            if (serverUrl) {
+                await axios.post(`${serverUrl}/api/call`, {
                     session: instance.id,
                     chatId: cleanChatId,
                     duration: durationSec
-                }, {
-                    headers: instance.apiKey ? { 'X-Api-Key': instance.apiKey } : {},
-                    timeout: 10000
-                });
+                }, { headers, timeout: 10000 });
             }
         }
         catch (err) {
-            console.warn(`[WAHA] Call simulated / notice: ${err.message}`);
+            console.warn(`[WAHA] Call error: ${err.message}`);
         }
         return { success: true, duration: durationSec };
     }
