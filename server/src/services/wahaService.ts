@@ -26,10 +26,21 @@ export class WahaService {
 
     try {
       if (serverUrl && serverUrl.startsWith('http')) {
+        // 0. Teste rápido de conectividade: se o WAHA estiver fora, retorna em 2s sem travar o Nginx (504)
+        try {
+          await axios.get(`${serverUrl}/api/version`, { headers, timeout: 2000 });
+        } catch (pingErr: any) {
+          console.error(`[WAHA] Servidor WAHA não está respondendo em ${serverUrl}: ${pingErr.message}`);
+          return {
+            status: 'disconnected',
+            qrCode: undefined
+          };
+        }
+
         // 1. Descobrir se já existe uma sessão cadastrada no WAHA
         let sessionName = 'default';
         try {
-          const sessionsRes = await axios.get(`${serverUrl}/api/sessions?all=true`, { headers, timeout: 5000 });
+          const sessionsRes = await axios.get(`${serverUrl}/api/sessions?all=true`, { headers, timeout: 3000 });
           if (Array.isArray(sessionsRes.data) && sessionsRes.data.length > 0) {
             // No WAHA Core só é permitida 1 sessão. Usamos o nome da sessão existente
             sessionName = sessionsRes.data[0].name;
@@ -56,7 +67,7 @@ export class WahaService {
                     ]
                   }
                 },
-                { headers, timeout: 8000 }
+                { headers, timeout: 4000 }
               );
               sessionName = 'default';
               instance.id = 'default';
@@ -73,31 +84,31 @@ export class WahaService {
           await axios.post(
             `${serverUrl}/api/sessions/start`,
             { name: sessionName },
-            { headers, timeout: 8000 }
+            { headers, timeout: 4000 }
           );
         } catch (startErr: any) {
-          // Se já estiver rodando, não tem problema
+          // Se já estiver rodando, prossegue
         }
 
-        // 3. Polling aguardando o Chromium carregar e gerar o QR Code (até 15 segundos)
-        for (let attempt = 1; attempt <= 8; attempt++) {
-          await new Promise((r) => setTimeout(r, 1800));
+        // 3. Polling rápido aguardando o Chromium carregar o QR Code (max 4 tentativas de 1.5s = 6s total)
+        for (let attempt = 1; attempt <= 4; attempt++) {
+          await new Promise((r) => setTimeout(r, 1500));
 
           try {
             // Verifica status da sessão
-            const statusRes = await axios.get(`${serverUrl}/api/sessions/${sessionName}`, { headers, timeout: 4000 });
+            const statusRes = await axios.get(`${serverUrl}/api/sessions/${sessionName}`, { headers, timeout: 2000 });
             const currentStatus = statusRes.data?.status;
-            console.log(`[WAHA] Tentativa ${attempt}/8 - Status da sessão ${sessionName}: ${currentStatus}`);
+            console.log(`[WAHA] Tentativa ${attempt}/4 - Status da sessão ${sessionName}: ${currentStatus}`);
 
             if (currentStatus === 'WORKING') {
               return { status: 'connected' };
             }
 
-            // Tenta obter o QR code em formato RAW primeiro (para gerar via qrserver com alta fidelidade)
+            // Tenta obter o QR code em formato RAW primeiro
             try {
               const rawRes = await axios.get(`${serverUrl}/api/${sessionName}/auth/qr?format=raw`, {
                 headers,
-                timeout: 5000
+                timeout: 2500
               });
               if (rawRes.data && (rawRes.data.raw || typeof rawRes.data === 'string')) {
                 const rawString = typeof rawRes.data === 'string' ? rawRes.data : rawRes.data.raw;
@@ -115,7 +126,7 @@ export class WahaService {
               const qrRes = await axios.get(`${serverUrl}/api/${sessionName}/auth/qr`, {
                 headers: { ...headers, Accept: 'image/png, application/json' },
                 responseType: 'arraybuffer',
-                timeout: 6000
+                timeout: 3000
               });
 
               if (qrRes.data && qrRes.data.byteLength > 100) {
@@ -145,7 +156,7 @@ export class WahaService {
               const screenRes = await axios.get(`${serverUrl}/api/screenshot?session=${sessionName}`, {
                 headers,
                 responseType: 'arraybuffer',
-                timeout: 6000
+                timeout: 3000
               });
               if (screenRes.data && screenRes.data.byteLength > 500) {
                 const buf = Buffer.from(screenRes.data);
